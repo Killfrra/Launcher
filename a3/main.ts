@@ -1,88 +1,55 @@
-import { WebSocket } from 'ws';
+import prompts from 'prompts'
+//@ts-ignore
+import DHT from 'bittorrent-dht'
+import Server from './server'
+import Client from './client'
+import * as sh from './shared'
+import { local } from './remote'
 
-class Local {
-    async call(func: string, args?: any[], timeout?: number){
-        let f = this[func]
-        if(typeof f === 'function'){
-            return await (f as Function).apply(this, args)
-        }
-    }
-}
+const dht = new DHT()
+dht.listen(sh.DHT_PORT, () => {
+    console.log('DHT is now listening on', sh.DHT_PORT)
+})
 
-class Server extends Local {
-    private prop: string = '42'
-    get_rooms(){
-        return []
-    }
-}
+let { action } = await prompts({
+    name: 'action',
+    message: 'Select action',
+    type: 'select',
+    choices: [
+        { title: 'Create custom game', value: 'create' },
+        { title: 'Join   custom game', value: 'join' },
+    ]
+})
 
-class Remote {
-    ws: WebSocket
+let clientName: string = (await prompts({
+    type: 'text', name: 'name',
+    message: 'Enter player name',
+    initial: 'TEST CLIENT'
+})).name
 
-    constructor(ws){
-        this.ws = ws
-        this.ws.on('message', async (data) => {
-            let msg_in = JSON.parse(data.toString('utf8'))
-            if(msg_in.type === 'call'){
-                let func = this[msg_in.data.func]
-                if(typeof func === 'function'){
-                    let data: any = undefined
-                    let error: any = undefined
-                    try {
-                        data = await (func as Function).apply(this, msg_in.data.args)
-                    } catch (e) {
-                        error = e
-                    }
-                    let msg_out = {
-                        id: msg_in.id,
-                        data,
-                        error
-                    }
-                    this.ws.send(JSON.stringify(msg_out))
-                }
-            }
-        })
-    }
+if (action === 'create') {
 
-    call(func: string, args?: any[], timeout?: number){
-        return new Promise((res, rej) => {
-            let timeoutInterval
-            let id = Math.floor(Math.random() * (Math.pow(2, 32) - 1)).toString(36)
-            let msg_out = {
-                id,
-                type: 'call',
-                data: {
-                    func,
-                    args
-                }
-            }
-            let cb = (data) => {
-                let msg_in = JSON.parse(data.toString('utf8'))
-                if (msg_in.id === msg_out.id) {
-                    this.ws.off('message', cb)
-                    if (timeout !== undefined) {
-                        clearTimeout(timeoutInterval)
-                    }
-                    if (msg_in.error !== undefined) {
-                        rej(msg_in.error)
-                    } else {
-                        res(msg_in.data)
-                    }
-                }
-            }
-            this.ws.on('message', cb)
-            this.ws.send(JSON.stringify(msg_out))
-            
-            if (timeout !== undefined) {
-                timeoutInterval = setTimeout(() => {
-                    this.ws.off('message', cb)
-                    rej('timeout')
-                })
-            }
-        })
-    }
-}
+    let serverName: string = (await prompts({
+        type: 'text', name: 'name',
+        message: 'Enter server name',
+        initial: 'TEST SERVER'
+    })).name
+    let server = new Server(dht, serverName)
+    let client = new Client(dht, clientName)
 
-class Client {
+    let roomName: string = (await prompts({
+        type: 'text', name: 'name',
+        message: 'Enter room name',
+        initial: 'TEST ROOM'
+    })).name
+    let roomID = await server.addRoom(roomName);
 
+    let remoteClient = await server.addLocalClient(client)
+    let remoteServer = await client.addLocalServer(server)
+    await client.joinRoom(roomID, remoteServer)
+    
+
+} else if(action === 'join') {
+    let client = new Client(dht, clientName)
+    await client.lookup()
 }
