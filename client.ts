@@ -64,7 +64,6 @@ export default class Client {
     constructor(dht: any, name: string){
         this.dht = dht
         this.name = name
-        return
 
         this.dht.on('peer', async (peer: any, infoHash: any, from: any) => {
             let peerID = peer.host + ':' + peer.port
