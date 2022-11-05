@@ -261,7 +261,7 @@ if (action === 'create') {
         console.error(e)
     }
 }
-
+/*
 import prompts from 'prompts';
 
 let { action } = await prompts({
@@ -388,3 +388,4 @@ if (action === 'create') {
 } else if(action === 'join') {
 
 }
+*/
