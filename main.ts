@@ -4,7 +4,6 @@ import DHT from 'bittorrent-dht'
 import Server from './server'
 import Client from './client'
 import * as sh from './shared'
-import { local } from './remote'
 
 const dht = new DHT()
 dht.listen(sh.DHT_PORT, () => {
