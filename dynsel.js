@@ -1,10 +1,10 @@
-import prompts from 'prompts';
-export default class DynamicSelectPrompt {
-    name;
-    message;
-    choices;
-    prompt;
-    opts;
+"use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+const prompts_1 = __importDefault(require("prompts"));
+class DynamicSelectPrompt {
     constructor(name, message, choices) {
         this.name = name;
         this.message = message;
@@ -21,7 +21,7 @@ export default class DynamicSelectPrompt {
     }
     async show() {
         let that = this;
-        return (await prompts({
+        return (await (0, prompts_1.default)({
             type: 'select',
             message: this.message,
             name: this.name,
@@ -41,3 +41,5 @@ export default class DynamicSelectPrompt {
         this.prompt.render();
     }
 }
+exports.default = DynamicSelectPrompt;
+//# sourceMappingURL=dynsel.js.map

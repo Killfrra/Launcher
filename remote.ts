@@ -23,15 +23,16 @@ export function remote<Prop extends object, Meth extends object>(
 }
 
 export function local<Prop extends object, Meth extends object>(
-    base: Prop, local: Meth
+    base: Prop, proto: Meth, other: any
 ){
     let fake = base || {}
     let proxy = new Proxy(fake, {
         get(fake, p, receiver) {
-            let func = (local as any)[p]
+            let func = (proto as any)[p]
             if(typeof p === 'string' && !(p in fake) && typeof func === 'function'){
                 return ((fake as any)[p] = function(...args: any[]){
-                    (func as Function).apply(this, args.concat([ local ]))
+                    let that = (this === proxy) ? proto : this
+                    return (func as Function).apply(that, args.concat([ other.other ]))
                 })
             }
             return Reflect.get(fake, p, receiver)

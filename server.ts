@@ -30,14 +30,15 @@ export default class Server {
     
     name: string
     
-    private clients = new Set<Client>();
-    private rooms = new Map<number, Room>();
-    private annouceInterval
+    clients = new Set<Client>();
+    rooms = new Map<number, Room>();
+    annouceInterval
+    wss: WebSocketServer
     
     constructor(dht: any, name: string){
         this.name = name
 
-        const wss = new WebSocketServer({ port: sh.WS_PORT })
+        this.wss = new WebSocketServer({ port: sh.WS_PORT })
         console.log('WS is now listening on', sh.WS_PORT)
 
         let announce = () => {
@@ -48,14 +49,14 @@ export default class Server {
         this.annouceInterval = setInterval(announce, sh.DHT_REANNOUNCE_INTERVAL)
         announce()
 
-        wss.on('connection', (ws, req) => {
+        this.wss.on('connection', (ws, req) => {
             let client = remote(ws, new ClientProperties(), LocalClient, this)
             this.clients.add(client)
         })
     }
 
-    async addLocalClient(localClient: LocalClient){
-        let client = local(new ClientProperties(), localClient)
+    async addLocalClient(localClient: LocalClient, other: { other?: any }){
+        let client = local(new ClientProperties(), localClient, other)
         this.clients.add(client)
         return client
     }
@@ -91,6 +92,7 @@ export default class Server {
         caller!.name = name
         caller!.team = team
         caller!.room = room
+
         return { team, players }
     }
 
@@ -107,5 +109,22 @@ export default class Server {
                 client.switchTeam(caller!.id, team)
             }
         }
+    }
+
+    //@rpc
+    async startGame(caller?: Client){
+        let room = caller!.room!
+        let players = Array.from(this.clients).filter(client => client.room === room) //TODO:
+        let champions = await Promise.all(players.map(player => player.selectChampion()))
+
+        await this.launchServer()
+
+        for(let player of players){
+            player.launchGame('', 0, '', player.id)
+        }
+    }
+
+    async launchServer(){
+
     }
 }

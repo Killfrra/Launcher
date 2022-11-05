@@ -55,12 +55,17 @@ export default class Client {
         return Array.from(this.rooms).map(room => ({
             title: `${room.name} @ ${room.server.host}:${room.server.port}`,
             value: room
-        }))
+        })).concat([ {
+            title: 'END',
+            disabled: true
+        } as any ])
     })
 
     constructor(dht: any, name: string){
         this.dht = dht
         this.name = name
+        return
+
         this.dht.on('peer', async (peer: any, infoHash: any, from: any) => {
             let peerID = peer.host + ':' + peer.port
             let fromID = from.address + ':' + from.port
@@ -74,21 +79,26 @@ export default class Client {
             try {
                 let ws = new WebSocket('ws://' + peerID)
                 let server = remote(ws, new ServerProperties(peer.host, peer.port), LocalServer, this)
-                await this.addServer(server)
+                this.servers.set(server.id, server)
+
+                ws.on('error', (err) => console.error(err))
+
+                await new Promise<void>((res, rej) => ws.on('open', () => res()))
+                await this.getRooms(server)
             } catch (e) {
                 console.error(e)
             }
         })
     }
 
-    async addLocalServer(localServer: LocalServer){
-        let server = local(new ServerProperties('0.0.0.0', sh.WS_PORT), localServer)
-        await this.addServer(server)
+    async addLocalServer(localServer: LocalServer, other: { other?: any }){
+        let server = local(new ServerProperties('', sh.WS_PORT), localServer, other)
+        this.servers.set(server.id, server)
+        await this.getRooms(server)
         return server
     }
 
-    async addServer(server: Server){
-        this.servers.set(server.id, server)
+    async getRooms(server: Server){
         try {
             let rooms = await server.getRooms()
             for(let r of rooms){
@@ -122,7 +132,7 @@ export default class Client {
 
     async lookup(){
         this.dht.lookup(sh.INFO_HASH, () => {
-            console.log('lookup')
+            console.log('lookup finished')
         })
 
         let room = await this.roomPrompt.show()
@@ -157,15 +167,50 @@ export default class Client {
             await server.switchTeam(newteam)
             team = newteam
         }
+
+        let start = (await prompts({
+            type: 'confirm',
+            name: 'name',
+            message: 'Start game?',
+            initial: true
+        })).name
+
+        if(start){
+            server.startGame()
+        }
     }
 
     //@rpc
-    async addPlayer(team: sh.TeamID, name: string){
+    async addPlayer(team: sh.TeamID, name: string, server?: Server){
         console.log(`${name} joined ${sh.TID2str[team]}`)
     }
     
     //@rpc
-    async switchTeam(id: number, team: sh.TeamID, caller?: Client){
+    async switchTeam(id: number, team: sh.TeamID, server?: Server){
         console.log(`${this.room?.players.get(id)?.name} turned to ${sh.TID2str[team]}`)
+    }
+
+    //@rpc
+    async selectChampion(server?: Server){
+        let champion = (await prompts({
+            type: 'select',
+            name: 'name',
+            message: 'Select champion',
+            choices: [
+                { title: 'Singed', value: 'Singed' },
+                { title: 'Singed', value: 'Singed' },
+                { title: 'Singed', value: 'Singed' },
+                { title: 'Singed', value: 'Singed' },
+            ]
+        })).name
+        return champion
+    }
+
+    //@rpc
+    async launchGame(host: string, port: number, blowfish: string, playerID: number, server?: Server){
+        host = host || server!.host || '127.0.0.1'
+        port = port || 5119
+        blowfish = blowfish || '17BLOhi6KZsTtldTsizvHg=='
+        console.log(`start 'League of Legends.exe' '' '' '' '${host} ${port} ${blowfish} ${playerID}'`);
     }
 }

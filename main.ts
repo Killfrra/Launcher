@@ -5,50 +5,66 @@ import Server from './server'
 import Client from './client'
 import * as sh from './shared'
 
-const dht = new DHT()
-dht.listen(sh.DHT_PORT, () => {
-    console.log('DHT is now listening on', sh.DHT_PORT)
-})
+async function main(){
 
-let { action } = await prompts({
-    name: 'action',
-    message: 'Select action',
-    type: 'select',
-    choices: [
-        { title: 'Create custom game', value: 'create' },
-        { title: 'Join   custom game', value: 'join' },
-    ]
-})
+    /*
+    const dht = {
+        on: (evt: string, cb: (peer: any, infoHash: any, from: any) => void) => {},
+        lookup: (hash: string, cb: () => void) => {},
+        listen: (port: number, cb: () => void) => {},
+        announce: (hash: string, port: number, cb: () => void) => {},
+    }
+    //*/const dht = new DHT()
 
-let clientName: string = (await prompts({
-    type: 'text', name: 'name',
-    message: 'Enter player name',
-    initial: 'TEST CLIENT'
-})).name
+    dht.listen(sh.DHT_PORT, () => {
+        console.log('DHT is now listening on', sh.DHT_PORT)
+    })
 
-if (action === 'create') {
-
-    let serverName: string = (await prompts({
+    let clientName: string = (await prompts({
         type: 'text', name: 'name',
-        message: 'Enter server name',
-        initial: 'TEST SERVER'
+        message: 'Enter player name',
+        initial: 'TEST CLIENT'
     })).name
-    let server = new Server(dht, serverName)
-    let client = new Client(dht, clientName)
 
-    let roomName: string = (await prompts({
-        type: 'text', name: 'name',
-        message: 'Enter room name',
-        initial: 'TEST ROOM'
-    })).name
-    let roomID = await server.addRoom(roomName);
+    let { action } = await prompts({
+        name: 'action',
+        message: 'Select action',
+        type: 'select',
+        choices: [
+            { title: 'Create custom game', value: 'create' },
+            { title: 'Join   custom game', value: 'join' },
+        ]
+    })
 
-    let remoteClient = await server.addLocalClient(client)
-    let remoteServer = await client.addLocalServer(server)
-    await client.joinRoom(roomID, remoteServer)
-    
+    if (action === 'create') {
 
-} else if(action === 'join') {
-    let client = new Client(dht, clientName)
-    await client.lookup()
+        let serverName: string = (await prompts({
+            type: 'text', name: 'name',
+            message: 'Enter server name',
+            initial: 'TEST SERVER'
+        })).name
+        let server = new Server(dht, serverName)
+        let client = new Client(dht, clientName)
+
+        let roomName: string = (await prompts({
+            type: 'text', name: 'name',
+            message: 'Enter room name',
+            initial: 'TEST ROOM'
+        })).name
+        let roomID = await server.addRoom(roomName);
+
+        let otherClient: { other?: any } = {} //TODO: X
+        let otherServer: { other?: any } = {} //TODO: X
+        let remoteClient = otherClient.other = await server.addLocalClient(client, otherServer)
+        let remoteServer = otherServer.other = await client.addLocalServer(server, otherClient)
+        await client.joinRoom(roomID, remoteServer)
+        
+
+    } else if(action === 'join') {
+        let client = new Client(dht, clientName)
+        await client.lookup()
+    }
+
 }
+
+main()

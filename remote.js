@@ -1,4 +1,7 @@
-export function remote(ws, base, cls, local) {
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.local = exports.remote = void 0;
+function remote(ws, base, cls, local) {
     let fake = base;
     let proto = cls.prototype;
     let remote;
@@ -13,14 +16,16 @@ export function remote(ws, base, cls, local) {
     remote = new Remote(ws, proxy, local);
     return proxy;
 }
-export function local(base, local) {
+exports.remote = remote;
+function local(base, proto, other) {
     let fake = base || {};
     let proxy = new Proxy(fake, {
         get(fake, p, receiver) {
-            let func = local[p];
+            let func = proto[p];
             if (typeof p === 'string' && !(p in fake) && typeof func === 'function') {
                 return (fake[p] = function (...args) {
-                    func.apply(this, args.concat([local]));
+                    let that = (this === proxy) ? proto : this;
+                    return func.apply(that, args.concat([other.other]));
                 });
             }
             return Reflect.get(fake, p, receiver);
@@ -28,9 +33,8 @@ export function local(base, local) {
     });
     return proxy;
 }
+exports.local = local;
 class Remote {
-    ws;
-    caller;
     constructor(ws, caller, local) {
         this.ws = ws;
         this.caller = caller;
@@ -99,3 +103,4 @@ class Local {
     }
 }
 */ 
+//# sourceMappingURL=remote.js.map
