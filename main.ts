@@ -8,7 +8,7 @@ import { debug } from './shared'
 
 async function main(){
 
-    ///*
+    /*
     const dht = {
         on: (evt: string, cb: (peer: any, infoHash: any, from: any) => void) => {},
         lookup: (hash: string, cb: () => void) => {},

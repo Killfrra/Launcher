@@ -184,7 +184,6 @@ export default class Client {
     async lookup(){
         //TODO: lookup interval?
         this.inLookup = true
-        this.roomPrompt.update()
         this.dht.lookup(sh.INFO_HASH, () => {
             this.inLookup = false
             this.roomPrompt.update()
