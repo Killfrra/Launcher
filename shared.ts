@@ -1,5 +1,6 @@
 import sha1 from 'simple-sha1'
 import path from 'path'
+import os from 'os'
 
 export enum TeamID {
     SPEC = 0,
@@ -13,8 +14,16 @@ export const WS_PORT = 8080
 export const DHT_PORT = 20000
 export const DHT_REANNOUNCE_INTERVAL = 15 * 60 * 1000
 export const INFO_HASH = sha1.sync('nonexistent')
-export const GAMESERVER_DIR = path.resolve('../branches/indev/GameServerConsole/bin/Debug/net6.0')
-export const GAMESERVER_EXE = 'GameServerConsole' //.exe
+const GAMESERVER_RELATIVE_DIR = '../branches/indev' + '/' + 'GameServerConsole/bin/Debug/net6.0'
+
+export let GAMESERVER_EXE = 'GameServerConsole'
+export let CONTENT_PATH = '../../../../Content'
+if(os.platform() === 'win32'){
+    GAMESERVER_EXE = 'GameServerConsole.exe'
+    CONTENT_PATH = '../../../../../Content' //TODO: check if it is necessary
+}
+
+export const GAMESERVER_DIR = path.resolve(GAMESERVER_RELATIVE_DIR)
 export const GAMESERVER_PORT = 5119
 
 const verbose = process.argv[2] === '-v'
@@ -29,19 +38,6 @@ export class debug {
             console.log('ERROR:', ...args)
         }
     }
-}
-
-function groupBy<T, K>(array: Iterable<T>, value: (item: T) => K){
-    let ret = new Map<K, T[]>()
-    for(let item of array){
-        let k = value(item)
-        let group = ret.get(k)
-        if(!group){
-            ret.set(k, group = [])
-        }
-        group.push(item)
-    }
-    return ret
 }
 
 export function makeID(len: number) {

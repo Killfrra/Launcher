@@ -193,7 +193,7 @@ export default class Server {
                 CHEATS_ENABLED: room.gameInfo.cheats,
                 MINION_SPAWNS_ENABLED: room.gameInfo.minions,
 
-                CONTENT_PATH: '../../../../Content',
+                CONTENT_PATH: sh.CONTENT_PATH,
                 IS_DAMAGE_TEXT_GLOBAL: false,
                 ENDGAME_HTTP_POST_ADDRESS: "",
             },

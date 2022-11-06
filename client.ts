@@ -104,7 +104,7 @@ export default class Client {
         ret = ret.concat(players.map(player => {
             let color = [ undefined, 'blue', 'red' ][player.team]
             return {
-                title: color ? (kleur as any)[color](player.name) : player.name,
+                title: 'Kick ' + (color ? (kleur as any)[color](player.name) : player.name),
                 disabled: true
             }
         }))
