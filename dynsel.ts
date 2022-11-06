@@ -1,12 +1,16 @@
 import prompts from 'prompts'
 
-type ChoicesGenerator<T> = () => { title: string, value: T }[]
+type ChoicesGenerator<T> = () => {
+    title: string
+    value?: T
+    disabled?: boolean
+}[]
 export default class DynamicSelectPrompt<T> {
-    name: string
-    message: string
-    choices: ChoicesGenerator<T>
-    prompt?: prompts.PromptObject & { render: () => void }
-    opts: prompts.Options
+    private name: string
+    private message: string
+    private choices: ChoicesGenerator<T>
+    private prompt?: prompts.PromptObject & { render: () => void }
+    private opts: prompts.Options
     constructor(name: string, message: string, choices: ChoicesGenerator<T>){
         this.name = name
         this.message = message
@@ -22,7 +26,7 @@ export default class DynamicSelectPrompt<T> {
             },
         }
     }
-    async show(): Promise<T> {
+    async show(): Promise<T|undefined> {
         let that = this
         return (await prompts({
             type: 'select',

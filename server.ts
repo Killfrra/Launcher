@@ -1,6 +1,7 @@
 import LocalClient from "./client";
 import { WebSocketServer } from 'ws';
 import * as sh from './shared'
+import { debug } from './shared'
 import { local, remote, RemoteType } from './remote'
 
 class ClientProperties {
@@ -28,22 +29,22 @@ class Room {
 
 export default class Server {
     
-    name: string
+    private name: string
     
-    clients = new Set<Client>();
-    rooms = new Map<number, Room>();
-    annouceInterval
-    wss: WebSocketServer
+    private clients = new Set<Client>();
+    private rooms = new Map<number, Room>();
+    private annouceInterval
+    private wss: WebSocketServer
     
     constructor(dht: any, name: string){
         this.name = name
 
         this.wss = new WebSocketServer({ port: sh.WS_PORT })
-        console.log('WS is now listening on', sh.WS_PORT)
+        debug.log('WS is now listening on', sh.WS_PORT)
 
         let announce = () => {
             dht.announce(sh.INFO_HASH, sh.WS_PORT, () => {
-                console.log('announced self')
+                debug.log('announced self')
             })
         }
         this.annouceInterval = setInterval(announce, sh.DHT_REANNOUNCE_INTERVAL)
@@ -61,7 +62,8 @@ export default class Server {
         return client
     }
 
-    async addRoom(name: string){
+    //@rpc
+    async addRoom(name: string, caller?: Client){
         let room = new Room(name)
         this.rooms.set(room.id, room)
         for(let client of this.clients.values()){
@@ -71,16 +73,17 @@ export default class Server {
     }
 
     //@rpc
-    async joinRoom(id: number, name: string, caller?: Client){
-        let room = this.rooms.get(id)
+    async joinRoom(roomID: number, name: string, caller?: Client){
+        let room = this.rooms.get(roomID)
         if(room === undefined){
             throw 'Room not found'
         }
-        let team = sh.TeamID.BLUE //TODO:
+        let id = caller!.id
+        let team = sh.TeamID.BLUE as sh.TeamID //TODO:
         let players = Array.from(this.clients)
             .filter(client => {
                 if(client.room === room){
-                    /*await*/ client.addPlayer(team, name)
+                    /*await*/ client.addPlayer({ id, team, name })
                     return true
                 }
             })
@@ -93,7 +96,19 @@ export default class Server {
         caller!.team = team
         caller!.room = room
 
-        return { team, players }
+        return { id, team, players }
+    }
+
+    //@rpc
+    async leaveRoom(caller?: Client){
+        let room = caller!.room
+        if(room){
+            for(let client of this.clients){
+                if(client !== caller && client.room === caller!.room){
+                    client.removePlayer(caller!.id)
+                }
+            }
+        }
     }
 
     //@rpc

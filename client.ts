@@ -1,14 +1,17 @@
 import LocalServer from "./server";
 import { WebSocket } from 'ws';
 import * as sh from './shared'
+import { debug } from './shared'
 import { local, remote, RemoteType } from './remote'
 import prompts from 'prompts'
 import DSP from './dynsel'
+import kleur from 'kleur'
 
 class ServerProperties {
     id: string
     host: string
     port: number
+    name?: string
     rooms = new Map<number, Room>()
     constructor(host: string, port: number){
         this.id = host + ':' + port
@@ -45,20 +48,75 @@ class Room {
 export default class Client {
 
     private dht
-    name: string
-    room?: Room
+    private name: string
+
+    private id?: number
+    private team?: sh.TeamID
+    private room?: Room
 
     private servers = new Map<string, Server>();
     private rooms = new Set<Room>();
 
-    private roomPrompt = new DSP<Room>('room', 'Select room', () => {
+    private inLookup = false
+    private inAwaiting = 0
+    private roomPrompt = new DSP('room', 'Select room', () => {
+        let title = 'END', n = 0
+        if(this.inLookup){
+            title = 'Looking for servers...'
+        } else if((n = this.inAwaiting) > 0){
+            title = `Waiting for a response from ${n} servers...`
+        }
         return Array.from(this.rooms).map(room => ({
-            title: `${room.name} @ ${room.server.host}:${room.server.port}`,
+            title: `${room.name} @ ${room.server.name} (${room.server.host}:${room.server.port})`,
             value: room
         })).concat([ {
-            title: 'END',
+            title,
             disabled: true
         } as any ])
+    })
+
+    private teamPrompt = new DSP('team', 'Select team', () => {
+        let ret: ({
+            title: string;
+            value?: { join: sh.TeamID } | { startGame: true }
+            disabled?: boolean;
+            description?: string;
+        })[] = [
+            {
+                value: { startGame: true }, title: 'Start game',
+                disabled: true
+            },
+            {
+                value: { join: sh.TeamID.BLUE }, title: `Join ${kleur.blue('blue')} team`,
+                disabled: this.team === sh.TeamID.BLUE
+            },
+            {
+                value: { join: sh.TeamID.PURP }, title: `Join ${kleur.red('red')} team`,
+                disabled: this.team === sh.TeamID.PURP
+            },
+            {
+                value: { join: sh.TeamID.SPEC }, title: `Join ${kleur.grey('spectators')}`,
+                disabled: true, description: 'You cannot join spectators'
+            },
+        ]
+        /*
+        let players = this.room!.players.values()
+        let playersByTeam = groupBy(players, player => player.team)
+        for(let [team, players] of playersByTeam.entries()){
+            ret = ret.concat(players.map(player => ({
+                title: `${player.name}`, disabled: true
+            })))
+        }
+        */
+        let players = Array.from(this.room!.players.values())
+        ret = ret.concat(players.map(player => {
+            let color = [ undefined, 'blue', 'red' ][player.team]
+            return {
+                title: color ? (kleur as any)[color](player.name) : player.name,
+                disabled: true
+            }
+        }))
+        return ret
     })
 
     constructor(dht: any, name: string){
@@ -73,20 +131,14 @@ export default class Client {
                 return
             }
 
-            console.log('found potential peer ' + peerID + ' through ' + fromID)
+            debug.log('found potential peer ' + peerID + ' through ' + fromID)
 
-            try {
-                let ws = new WebSocket('ws://' + peerID)
-                let server = remote(ws, new ServerProperties(peer.host, peer.port), LocalServer, this)
-                this.servers.set(server.id, server)
+            let ws = new WebSocket('ws://' + peerID)
+            server = remote(ws, new ServerProperties(peer.host, peer.port), LocalServer, this)
+            this.servers.set(server.id, server)
 
-                ws.on('error', (err) => console.error(err))
-
-                await new Promise<void>((res, rej) => ws.on('open', () => res()))
-                await this.getRooms(server)
-            } catch (e) {
-                console.error(e)
-            }
+            ws.on('open', () => /*await*/ this.getRooms(server!))
+            ws.on('error', (err) => debug.error(err))
         })
     }
 
@@ -107,7 +159,7 @@ export default class Client {
             }
             this.roomPrompt.update()
         } catch(e) {
-            console.error(e)
+            debug.error(e)
         }
     }
 
@@ -130,63 +182,93 @@ export default class Client {
     }
 
     async lookup(){
+        //TODO: lookup interval?
+        this.inLookup = true
+        this.roomPrompt.update()
         this.dht.lookup(sh.INFO_HASH, () => {
-            console.log('lookup finished')
+            this.inLookup = false
+            this.roomPrompt.update()
         })
-
-        let room = await this.roomPrompt.show()
-        await this.joinRoom(room.id, room.server)
+        await this.selectRoom()
     }
 
-    async joinRoom(id: number, server: Server){
-        let { team, players } = await server.joinRoom(id, this.name!)
+    async selectRoom(){
+        let room = await this.roomPrompt.show()
+        if(room !== undefined){
+            await this.joinRoom(room.id, room.server)
+        }
+        //TODO: exit to main menu
+    }
 
-        this.room = server.rooms.get(id)!
+    async joinRoom(roomID: number, server: Server){
+        let { id, team, players } = await server.joinRoom(roomID, this.name!)
 
-        console.log(`You joined ${sh.TID2str[team]}`)
+        this.id = id
+        this.team = team
+        this.room = server.rooms.get(roomID)!
+
         for(let p of players){
             let player = new Player(p.id, p.name, p.team)
             this.room.players.set(player.id, player)
-            console.log(`${p.name} in ${sh.TID2str[p.team]}`)
         }
-        //TODO: add self? what's id?
+        
+        do {
+            let action = await this.teamPrompt.show()
+            if(action === undefined){
+                await this.leaveRoom()
+                //TODO: process.nextTick or setImmediate?
+                //TODO: to avoid call stack overflow
+                /*await*/ this.selectRoom()
+            } else if('join' in action){
+                team = action.join
+                if(this.team != team){
+                    await server.switchTeam(team)
+                    this.team = team
+                    this.teamPrompt.update()
+                }
+            } else if('startGame' in action){
+                server.startGame()
+            }
+        } while(true)
+    }
 
-        let newteam = (await prompts({
-            type: 'select',
-            name: 'name',
-            message: 'Select team',
-            choices: [
-                { title: 'blue', value: sh.TeamID.BLUE },
-                { title: 'red', value: sh.TeamID.PURP },
-                { title: 'spectators', value: sh.TeamID.SPEC },
-            ]
-        })).name
+    async leaveRoom(){
+        if(this.room !== undefined){
+            await this.room.server.leaveRoom()
 
-        if(team != newteam){
-            await server.switchTeam(newteam)
-            team = newteam
+            this.id = undefined
+            this.team = undefined
+            this.room = undefined
         }
-
-        let start = (await prompts({
-            type: 'confirm',
-            name: 'name',
-            message: 'Start game?',
-            initial: true
-        })).name
-
-        if(start){
-            server.startGame()
-        }
+        console.log('You left the room')
     }
 
     //@rpc
-    async addPlayer(team: sh.TeamID, name: string, server?: Server){
-        console.log(`${name} joined ${sh.TID2str[team]}`)
+    async addPlayer(p: {id: number, team: sh.TeamID, name: string}, server?: Server){
+        if(this.room !== undefined && this.room.server === server){
+            let player = new Player(p.id, p.name, p.team)
+            this.room.players.set(player.id, player)
+            this.teamPrompt.update()
+        }
     }
     
     //@rpc
     async switchTeam(id: number, team: sh.TeamID, server?: Server){
-        console.log(`${this.room?.players.get(id)?.name} turned to ${sh.TID2str[team]}`)
+        if(this.room !== undefined && this.room.server === server){
+            let player = this.room.players.get(id);
+            if(player !== undefined){
+                player.team = team
+                this.teamPrompt.update()
+            }
+        }
+    }
+
+    //@rpc
+    async removePlayer(id: number, server?: Server){
+        if(this.room !== undefined && this.room.server === server){
+            this.room.players.delete(id)
+            this.teamPrompt.update()
+        }
     }
 
     //@rpc
