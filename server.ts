@@ -237,6 +237,8 @@ export default class Server {
         proc.stdout.setEncoding('utf8');
         proc.on('close', (code) => {
             for(let player of players){
+                player.ready = false
+                player.champion = undefined
                 /*await*/ player.endGame(code || 0)
             }
         })

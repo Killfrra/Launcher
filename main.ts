@@ -57,10 +57,10 @@ async function main(){
             message: 'Enter room name',
             initial: makeID(8)
         })).name
-        let roomID = await server.addRoom(roomName);
+        let roomID = await server.addRoom(roomName, remoteClient);
 
         await client.joinRoom(roomID, remoteServer)
-        
+
     } else if(action === 'join') {
         let client = new Client(dht, clientName)
         await client.lookup()

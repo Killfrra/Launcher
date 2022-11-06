@@ -9,7 +9,12 @@ export default class DynamicSelectPrompt<T> {
     private name: string
     private message: string
     private choices: ChoicesGenerator<T>
-    private prompt?: prompts.PromptObject & { render: () => void }
+    private prompt?: prompts.PromptObject & {
+        cursor: number
+        value: any
+        render: () => void
+        fire: () => void
+    }
     private opts: prompts.Options
     constructor(name: string, message: string, choices: ChoicesGenerator<T>){
         this.name = name
@@ -45,6 +50,14 @@ export default class DynamicSelectPrompt<T> {
             return
         }
         this.prompt.choices = this.choices()
+        //HACK: begin
+        let n = this.prompt.cursor
+        let newValue = this.prompt.choices[n].value;
+        if(this.prompt.value !== newValue){
+            this.prompt.value = newValue
+            this.prompt.fire()
+        }
+        //HACK:end
         this.prompt.render()
     }
     /*

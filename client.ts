@@ -67,7 +67,7 @@ export default class Client {
         } else if((n = this.inAwaiting) > 0){
             title = `Waiting for a response from ${n} servers...`
         }
-        return Array.from(this.rooms).map(room => ({
+        return Array.from(this.rooms.values()).map(room => ({
             title: `${room.name} @ ${room.server.name} (${room.server.host}:${room.server.port})`,
             value: room
         })).concat([ {
@@ -118,24 +118,23 @@ export default class Client {
         this.dht.on('peer', async (peer: any, infoHash: any, from: any) => {
             let peerID = peer.host + ':' + peer.port
             let fromID = from.address + ':' + from.port
-            let server = this.servers.get(peerID)
-            if (server) {
+            if (this.servers.has(peerID)) {
                 return
             }
 
             debug.log('found potential peer ' + peerID + ' through ' + fromID)
 
             let ws = new WebSocket('ws://' + peerID)
-            server = remote(ws, new ServerProperties(peer.host, peer.port), LocalServer, this)
+            let server = remote(ws, new ServerProperties(peer.host, peer.port), LocalServer, this)
             this.servers.set(server.id, server)
 
             //TODO: X?
             ws.on('open', () => {
-                /*await*/ this.getRooms(server!)
+                /*await*/ this.getRooms(server)
             })
             ws.on('close', (code: number, reason: Buffer) => {
                 debug.error('close', code, reason)
-                /*await*/ this.removeAllRooms(server!)
+                /*await*/ this.removeAllRooms(server)
             })
             ws.on('error', (err) => {
                 debug.error('error', err)
@@ -229,7 +228,11 @@ export default class Client {
             let player = new Player(p.id, p.name, p.team)
             this.room.players.set(player.id, player)
         }
-        
+        /*async*/ this.selectTeam(server)
+    }
+
+    private async selectTeam(server: Server){
+        let team = this.team
         do {
             let action = await this.teamPrompt.show()
             if(action === undefined){
@@ -328,6 +331,7 @@ export default class Client {
             return
         }
         console.log('Server exited with code', code)
+        /*await*/ this.selectTeam(server)
     }
 
     async log(msg: string, server?: Server){
