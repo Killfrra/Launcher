@@ -47,4 +47,12 @@ export default class DynamicSelectPrompt<T> {
         this.prompt.choices = this.choices()
         this.prompt.render()
     }
+    /*
+    abort(){
+        if(!this.prompt){
+            return
+        }
+        (this.prompt as any).abort()
+    }
+    */
 }

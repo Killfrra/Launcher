@@ -53,6 +53,7 @@ export default class Client {
     private id?: number
     private team?: sh.TeamID
     private room?: Room
+    private ready = false
 
     private servers = new Map<string, Server>();
     private rooms = new Set<Room>();
@@ -75,7 +76,7 @@ export default class Client {
         } as any ])
     })
 
-    private teamPrompt = new DSP('team', 'Select team', () => {
+    private teamPrompt = new DSP('team', 'Select action', () => {
         let ret: ({
             title: string;
             value?: { join: sh.TeamID } | { startGame: true }
@@ -83,8 +84,8 @@ export default class Client {
             description?: string;
         })[] = [
             {
-                value: { startGame: true }, title: 'Start game',
-                disabled: true
+                value: { startGame: true }, title: 'Report readiness',
+                disabled: false
             },
             {
                 value: { join: sh.TeamID.BLUE }, title: `Join ${kleur.blue('blue')} team`,
@@ -99,15 +100,6 @@ export default class Client {
                 disabled: true, description: 'You cannot join spectators'
             },
         ]
-        /*
-        let players = this.room!.players.values()
-        let playersByTeam = groupBy(players, player => player.team)
-        for(let [team, players] of playersByTeam.entries()){
-            ret = ret.concat(players.map(player => ({
-                title: `${player.name}`, disabled: true
-            })))
-        }
-        */
         let players = Array.from(this.room!.players.values())
         ret = ret.concat(players.map(player => {
             let color = [ undefined, 'blue', 'red' ][player.team]
@@ -137,8 +129,22 @@ export default class Client {
             server = remote(ws, new ServerProperties(peer.host, peer.port), LocalServer, this)
             this.servers.set(server.id, server)
 
-            ws.on('open', () => /*await*/ this.getRooms(server!))
-            ws.on('error', (err) => debug.error(err))
+            //TODO: X?
+            ws.on('open', () => {
+                /*await*/ this.getRooms(server!)
+            })
+            ws.on('close', (code: number, reason: Buffer) => {
+                debug.error('close', code, reason)
+                /*await*/ this.removeAllRooms(server!)
+            })
+            ws.on('error', (err) => {
+                debug.error('error', err)
+                /*await*/ this.removeAllRooms(server!)
+            })
+            ws.on('unexpected-response', (request: any/*ClientRequest*/, response: any/*IncomingMessage*/) => {
+                debug.error('unexpected-response', request, response)
+                /*await*/ this.removeAllRooms(server!)
+            })
         })
     }
 
@@ -152,22 +158,27 @@ export default class Client {
     async getRooms(server: Server){
         try {
             let rooms = await server.getRooms()
-            for(let r of rooms){
-                let room = new Room(r.id, r.name, server)
-                server.rooms.set(room.id, room)
-                this.rooms.add(room)
-            }
-            this.roomPrompt.update()
+            await this.addRooms(rooms, server)
         } catch(e) {
             debug.error(e)
         }
     }
 
     //@rpc
+    async addRooms(rooms: { id: number, name: string }[], server?: Server){
+        for(let r of rooms){
+            let room = new Room(r.id, r.name, server!)
+            server!.rooms.set(room.id, room)
+            this.rooms.add(room)
+        }
+        this.roomPrompt.update()
+    }
+
+    //@rpc
     async addRoom(r: { id: number, name: string }, server?: Server){
         let room = new Room(r.id, r.name, server!)
-        this.rooms.add(room)
         server!.rooms.set(room.id, room)
+        this.rooms.add(room)
         this.roomPrompt.update()
     }
 
@@ -179,6 +190,14 @@ export default class Client {
             server!.rooms.delete(id)
             this.roomPrompt.update()
         }
+    }
+
+    //@rpc
+    async removeAllRooms(server?: Server){
+        for(let room of server!.rooms.values()){
+            this.rooms.delete(room)
+        }
+        server!.rooms.clear()
     }
 
     async lookup(){
@@ -215,9 +234,7 @@ export default class Client {
             let action = await this.teamPrompt.show()
             if(action === undefined){
                 await this.leaveRoom()
-                //TODO: process.nextTick or setImmediate?
-                //TODO: to avoid call stack overflow
-                /*await*/ this.selectRoom()
+                return
             } else if('join' in action){
                 team = action.join
                 if(this.team != team){
@@ -226,7 +243,12 @@ export default class Client {
                     this.teamPrompt.update()
                 }
             } else if('startGame' in action){
-                server.startGame()
+                this.ready = true
+                let everybodyReady = await server.startGame()
+                if(!everybodyReady){
+                    console.log('Waiting for the game to start...')
+                }
+                break
             }
         } while(true)
     }
@@ -238,59 +260,80 @@ export default class Client {
             this.id = undefined
             this.team = undefined
             this.room = undefined
+            this.ready = false
         }
         console.log('You left the room')
     }
 
     //@rpc
     async addPlayer(p: {id: number, team: sh.TeamID, name: string}, server?: Server){
-        if(this.room !== undefined && this.room.server === server){
-            let player = new Player(p.id, p.name, p.team)
-            this.room.players.set(player.id, player)
-            this.teamPrompt.update()
+        if(server === undefined || server != this.room?.server){
+            return
         }
+        let player = new Player(p.id, p.name, p.team)
+        this.room.players.set(player.id, player)
+        this.teamPrompt.update()
     }
     
     //@rpc
     async switchTeam(id: number, team: sh.TeamID, server?: Server){
-        if(this.room !== undefined && this.room.server === server){
-            let player = this.room.players.get(id);
-            if(player !== undefined){
-                player.team = team
-                this.teamPrompt.update()
-            }
+        if(server === undefined || server != this.room?.server){
+            return
+        }
+        let player = this.room.players.get(id);
+        if(player !== undefined){
+            player.team = team
+            this.teamPrompt.update()
         }
     }
 
     //@rpc
     async removePlayer(id: number, server?: Server){
-        if(this.room !== undefined && this.room.server === server){
-            this.room.players.delete(id)
-            this.teamPrompt.update()
+        if(server === undefined || server != this.room?.server){
+            return
         }
+        this.room.players.delete(id)
+        this.teamPrompt.update()
     }
 
     //@rpc
     async selectChampion(server?: Server){
+        if(server === undefined || server != this.room?.server){
+            return
+        }
         let champion = (await prompts({
-            type: 'select',
+            type: 'autocomplete',
             name: 'name',
             message: 'Select champion',
-            choices: [
-                { title: 'Singed', value: 'Singed' },
-                { title: 'Singed', value: 'Singed' },
-                { title: 'Singed', value: 'Singed' },
-                { title: 'Singed', value: 'Singed' },
-            ]
+            choices: sh.champions.map(c => ({ title: c })),
+            initial: 0,
         })).name
         return champion
     }
 
     //@rpc
     async launchGame(host: string, port: number, blowfish: string, playerID: number, server?: Server){
+        if(server === undefined || server != this.room?.server){
+            return
+        }
         host = host || server!.host || '127.0.0.1'
         port = port || 5119
         blowfish = blowfish || '17BLOhi6KZsTtldTsizvHg=='
-        console.log(`start 'League of Legends.exe' '' '' '' '${host} ${port} ${blowfish} ${playerID}'`);
+        console.log(`wine 'League of Legends.exe' '' '' '' '${host} ${port} ${blowfish} ${playerID}'`);
+    }
+
+    //@rpc
+    async endGame(code: number, server?: Server){
+        if(server === undefined || server != this.room?.server){
+            return
+        }
+        console.log('Server exited with code', code)
+    }
+
+    async log(msg: string, server?: Server){
+        if(server === undefined || server != this.room?.server){
+            return
+        }
+        console.log(msg)
     }
 }

@@ -1,4 +1,5 @@
 import { WebSocket, RawData } from 'ws';
+import { debug } from './shared';
 
 type FilterConditionally<Source, Condition> = Pick<Source, {[K in keyof Source]: Source[K] extends Condition ? K : never}[keyof Source]>;
 
@@ -50,7 +51,7 @@ class Remote {
         if(!local){
             return
         }
-        this.ws.on('message', async (data) => {
+        ws.on('message', async (data) => {
             let msg_in = JSON.parse(data.toString('utf8'))
             if(msg_in.type === 'call'){
                 let funcname = msg_in.data?.func
@@ -68,13 +69,14 @@ class Remote {
                         data,
                         error
                     }
-                    this.ws.send(JSON.stringify(msg_out))
+                    ws.send(JSON.stringify(msg_out))
                 }
             }
         })
     }
 
     apply(func: string, args?: any[]){
+        let ws = this.ws
         return new Promise((res, rej) => {
             let id = Math.floor(Math.random() * (Math.pow(2, 32) - 1)).toString(36)
             let msg_out = {
@@ -85,10 +87,23 @@ class Remote {
                     args
                 }
             }
-            let cb = (data: RawData) => {
+            let onall = () => {
+                ws.on('message', onmessage)
+                ws.on('close', onclose)
+                ws.on('error', onerror)
+                ws.on('unexpected-response', onunexpectedresponse)
+            }
+            let offall = () => {
+                ws.off('message', onmessage)
+                ws.off('close', onclose)
+                ws.off('error', onerror)
+                ws.off('unexpected-response', onunexpectedresponse)
+                return true
+            }
+            let onmessage = (data: RawData) => {
                 let msg_in = JSON.parse(data.toString('utf8'))
                 if (msg_in.id === msg_out.id) {
-                    this.ws.off('message', cb)
+                    offall()
                     if (msg_in.error !== undefined) {
                         rej(msg_in.error)
                     } else {
@@ -96,19 +111,22 @@ class Remote {
                     }
                 }
             }
-            this.ws.on('message', cb)
-            this.ws.send(JSON.stringify(msg_out))
+            let onclose = (code: number, reason: Buffer) => {
+                debug.error('close', code, reason)
+                offall() && rej({ code, reason })
+            }
+            let onerror = (err: Error) => {
+                debug.error('error', err)
+                offall() && rej(err)
+            }
+            let onunexpectedresponse = (request: any/*ClientRequest*/, response: any/*IncomingMessage*/) => {
+                debug.error('unexpected-response', request, response)
+                offall() && rej({ request, response })
+            }
+
+            onall()
+
+            ws.send(JSON.stringify(msg_out))
         })
     }
 }
-
-/*
-class Local {
-    async call(func: string, args?: any[]){
-        let f = this[func]
-        if(typeof f === 'function'){
-            return await (f as Function).apply(this, args)
-        }
-    }
-}
-*/
