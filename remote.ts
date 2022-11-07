@@ -3,7 +3,8 @@ import { debug } from './shared';
 
 type FilterConditionally<Source, Condition> = Pick<Source, {[K in keyof Source]: Source[K] extends Condition ? K : never}[keyof Source]>;
 
-export type RemoteType<Prop extends object, Meth extends object> = Prop & FilterConditionally<Meth, Function>
+type RPCFunction = Function //((...args: any[]) => Promise<any>) & { rpc?: boolean }
+export type RemoteType<Prop extends object, Meth extends object> = Prop & FilterConditionally<Meth, RPCFunction>
 
 export function remote<Prop extends object, Meth extends object>(
     ws: WebSocket, base: Prop, cls: new(...args: any[]) => Meth, local?: object
@@ -40,6 +41,11 @@ export function local<Prop extends object, Meth extends object>(
         },
     }) as RemoteType<Prop, Meth>
     return proxy
+}
+
+export function rpc(obj: any, key: string /*, desc: PropertyDescriptor*/){
+    obj[key].rpc = true
+    //desc.value.rpc = true
 }
 
 class Remote {

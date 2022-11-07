@@ -2,7 +2,7 @@ import LocalClient from './client';
 import { WebSocketServer } from 'ws';
 import * as sh from './shared'
 import { debug } from './shared'
-import { local, remote, RemoteType } from './remote'
+import { local, remote, RemoteType, rpc } from './remote'
 import { promises as fs } from 'fs'
 import { spawn } from 'child_process'
 
@@ -89,7 +89,7 @@ export default class Server {
         return client
     }
 
-    //@rpc
+    @rpc
     async addRoom(name: string, caller?: Client){
         let room = new Room(name)
         this.rooms.set(room.id, room)
@@ -99,7 +99,7 @@ export default class Server {
         return room.id
     }
 
-    //@rpc
+    @rpc
     async joinRoom(roomID: number, name: string, caller?: Client){
         let room = this.rooms.get(roomID)
         if(room === undefined){
@@ -126,7 +126,7 @@ export default class Server {
         return { id, team, players }
     }
 
-    //@rpc
+    @rpc
     async leaveRoom(caller?: Client){
         let room = caller!.room
         if(room){
@@ -142,12 +142,12 @@ export default class Server {
         caller!.champion = undefined
     }
 
-    //@rpc
+    @rpc
     async getRooms(){
         return Array.from(this.rooms.values()).map(room => ({ id: room.id, name: room.name }))
     }
 
-    //@rpc
+    @rpc
     async switchTeam(team: sh.TeamID, caller?: Client){
         caller!.team = team
         for(let client of this.clients){
@@ -157,7 +157,7 @@ export default class Server {
         }
     }
 
-    //@rpc
+    @rpc
     async startGame(caller?: Client){
         caller!.ready = true
         

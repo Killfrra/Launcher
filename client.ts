@@ -2,7 +2,7 @@ import LocalServer from "./server";
 import { WebSocket } from 'ws';
 import * as sh from './shared'
 import { debug } from './shared'
-import { local, remote, RemoteType } from './remote'
+import { local, remote, RemoteType, rpc } from './remote'
 import prompts from 'prompts'
 import DSP from './dynsel'
 import kleur from 'kleur'
@@ -163,7 +163,7 @@ export default class Client {
         }
     }
 
-    //@rpc
+    @rpc
     async addRooms(rooms: { id: number, name: string }[], server?: Server){
         for(let r of rooms){
             let room = new Room(r.id, r.name, server!)
@@ -173,7 +173,7 @@ export default class Client {
         this.roomPrompt.update()
     }
 
-    //@rpc
+    @rpc
     async addRoom(r: { id: number, name: string }, server?: Server){
         let room = new Room(r.id, r.name, server!)
         server!.rooms.set(room.id, room)
@@ -181,7 +181,7 @@ export default class Client {
         this.roomPrompt.update()
     }
 
-    //@rpc
+    @rpc
     async removeRoom(id: number, server?: Server){
         let room = server!.rooms.get(id)
         if(room !== undefined){
@@ -191,7 +191,7 @@ export default class Client {
         }
     }
 
-    //@rpc
+    @rpc
     async removeAllRooms(server?: Server){
         for(let room of server!.rooms.values()){
             this.rooms.delete(room)
@@ -268,7 +268,7 @@ export default class Client {
         console.log('You left the room')
     }
 
-    //@rpc
+    @rpc
     async addPlayer(p: {id: number, team: sh.TeamID, name: string}, server?: Server){
         if(server === undefined || server != this.room?.server){
             return
@@ -278,7 +278,7 @@ export default class Client {
         this.teamPrompt.update()
     }
     
-    //@rpc
+    @rpc
     async switchTeam(id: number, team: sh.TeamID, server?: Server){
         if(server === undefined || server != this.room?.server){
             return
@@ -290,7 +290,7 @@ export default class Client {
         }
     }
 
-    //@rpc
+    @rpc
     async removePlayer(id: number, server?: Server){
         if(server === undefined || server != this.room?.server){
             return
@@ -299,7 +299,7 @@ export default class Client {
         this.teamPrompt.update()
     }
 
-    //@rpc
+    @rpc
     async selectChampion(server?: Server){
         if(server === undefined || server != this.room?.server){
             return
@@ -314,7 +314,7 @@ export default class Client {
         return champion
     }
 
-    //@rpc
+    @rpc
     async launchGame(host: string, port: number, blowfish: string, playerID: number, server?: Server){
         if(server === undefined || server != this.room?.server){
             return
@@ -325,7 +325,7 @@ export default class Client {
         console.log(`wine 'League of Legends.exe' '' '' '' '${host} ${port} ${blowfish} ${playerID}'`);
     }
 
-    //@rpc
+    @rpc
     async endGame(code: number, server?: Server){
         if(server === undefined || server != this.room?.server){
             return
@@ -334,6 +334,7 @@ export default class Client {
         /*await*/ this.selectTeam(server)
     }
 
+    @rpc
     async log(msg: string, server?: Server){
         if(server === undefined || server != this.room?.server){
             return
