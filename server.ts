@@ -2,7 +2,7 @@ import LocalClient from './client';
 import { WebSocketServer } from 'ws';
 import * as sh from './shared'
 import { debug } from './shared'
-import { local, remote, RemoteType, rpc } from './remote'
+import { Remote, LorR, rpc } from './remote'
 import { promises as fs } from 'fs'
 import { spawn } from 'child_process'
 
@@ -31,7 +31,7 @@ class ClientProperties {
     }
 }
 
-type Client = RemoteType<ClientProperties, LocalClient>
+type Client = LorR<LocalClient, ClientProperties>
 
 class Room {
     static nextID = 0
@@ -76,7 +76,7 @@ export default class Server {
         announce()
 
         this.wss.on('connection', (ws, req) => {
-            let client = remote(ws, new ClientProperties(), LocalClient, this)
+            let client = new Remote(this, ws, LocalClient, new ClientProperties())
             this.clients.add(client)
 
             ws.on('close', (code: number, reason: Buffer) => {
@@ -94,97 +94,99 @@ export default class Server {
         })
     }
 
-    async addLocalClient(localClient: LocalClient, other: { other?: any }){
+    /*
+    addLocalClient(localClient: LocalClient, other: { other?: any }){
         let props = new ClientProperties(Permissions.CreateRoom)
         let client = local(props, localClient, other)
         this.clients.add(client)
         return client
     }
+    */
 
     @rpc
-    async addRoom(name: string, caller?: Client){
-        if(!(caller && hasFlag(caller.perms, Permissions.CreateRoom))){
+    addRoom(name: string, caller: Client){
+        if(!(caller && hasFlag(caller.p.perms, Permissions.CreateRoom))){
             return
         }
         let room = new Room(name)
         this.rooms.set(room.id, room)
         for(let client of this.clients.values()){
-            /*async*/ client.addRoom({ id: room.id, name: room.name })
+            /*async*/ client.m.addRoom({ id: room.id, name: room.name })
         }
         return room.id
     }
 
     @rpc
-    async joinRoom(roomID: number, name: string, caller?: Client){
+    joinRoom(roomID: number, name: string, caller: Client){
         let room = this.rooms.get(roomID)
         if(room === undefined){
             throw 'Room not found'
         }
-        let id = caller!.id
+        let id = caller.p.id
         let team = sh.TeamID.BLUE as sh.TeamID //TODO:
         let players = Array.from(this.clients)
             .filter(client => {
-                if(client.room === room){
-                    /*await*/ client.addPlayer({ id, team, name })
+                if(client.p.room === room){
+                    /*await*/ client.m.addPlayer({ id, team, name })
                     return true
                 }
             })
             .map(client => ({
-                id: client.id!,
-                name: client.name!,
-                team: client.team!,
+                id: client.p.id!,
+                name: client.p.name!,
+                team: client.p.team!,
             }))
-        caller!.name = name
-        caller!.team = team
-        caller!.room = room
+        caller.p.name = name
+        caller.p.team = team
+        caller.p.room = room
 
         return { id, team, players }
     }
 
     @rpc
-    async leaveRoom(caller?: Client){
-        let room = caller!.room
+    leaveRoom(caller: Client){
+        let room = caller.p.room
         if(room){
             for(let client of this.clients){
-                if(client !== caller && client.room === room){
-                    /*await*/ client.removePlayer(caller!.id)
+                if(client !== caller && client.p.room === room){
+                    /*await*/ client.m.removePlayer(caller.p.id)
                 }
             }
         }
-        caller!.team = undefined
-        caller!.room = undefined
-        caller!.ready = false
-        caller!.champion = undefined
+        caller.p.team = undefined
+        caller.p.room = undefined
+        caller.p.ready = false
+        caller.p.champion = undefined
     }
 
     @rpc
-    async getRooms(){
+    getRooms(){
         return Array.from(this.rooms.values()).map(room => ({ id: room.id, name: room.name }))
     }
 
     @rpc
-    async switchTeam(team: sh.TeamID, caller?: Client){
-        caller!.team = team
+    switchTeam(team: sh.TeamID, caller: Client){
+        caller.p.team = team
         for(let client of this.clients){
-            if(client !== caller && client.room === caller!.room){
-                client.switchTeam(caller!.id, team)
+            if(client !== caller && client.p.room === caller.p.room){
+                client.m.switchTeam(caller.p.id, team)
             }
         }
     }
 
     @rpc
-    async startGame(caller?: Client){
-        caller!.ready = true
+    async startGame(caller: Client){
+        caller.p.ready = true
         
-        let room = caller!.room!
-        let players = Array.from(this.clients).filter(client => client.room === room) //TODO:
+        let room = caller.p.room!
+        let players = Array.from(this.clients).filter(client => client.p.room === room) //TODO:
 
-        if(!players.every(player => player.ready)){
+        if(!players.every(player => player.p.ready)){
             return false
         }
         
         await Promise.all(players.map(async player => {
-            player.champion = await player.selectChampion()
+            player.p.champion = await player.m.selectChampion()
         }))
 
         /* async */ this.launchGame(room, players)
@@ -213,12 +215,12 @@ export default class Server {
                 ENDGAME_HTTP_POST_ADDRESS: "",
             },
             players: players.map(player => ({
-                playerId: player.id,
-                blowfishKey: player.blowfish,
+                playerId: player.p.id,
+                blowfishKey: player.p.blowfish,
                 rank: 'DIAMOND',
-                name: player.name,
-                champion: player.champion,
-                team: player.team,
+                name: player.p.name,
+                champion: player.p.champion,
+                team: player.p.team,
                 skin: 0,
                 summoner1: 'SummonerFlash',
                 summoner2: 'SummonerHeal',
@@ -252,9 +254,9 @@ export default class Server {
         proc.stdout.setEncoding('utf8');
         proc.on('close', (code) => {
             for(let player of players){
-                player.ready = false
-                player.champion = undefined
-                /*await*/ player.endGame(code || 0)
+                player.p.ready = false
+                player.p.champion = undefined
+                /*await*/ player.m.endGame(code || 0)
             }
         })
 
@@ -271,7 +273,7 @@ export default class Server {
         })
 
         for(let player of players){
-            /*await*/ player.launchGame('', sh.GAMESERVER_PORT, player.blowfish, player.id)
+            /*await*/ player.m.launchGame('', sh.GAMESERVER_PORT, player.p.blowfish, player.p.id)
         }
     }
 }

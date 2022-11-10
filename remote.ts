@@ -1,97 +1,120 @@
-import { WebSocket, RawData } from 'ws';
-import { debug } from './shared';
-
-type FilterConditionally<Source, Condition> = Pick<Source, { [K in keyof Source]: Source[K] extends Condition ? K : never }[keyof Source]>;
-
-type RPCFunction = Function //((...args: any[]) => Promise<any>) & { rpc?: boolean }
-export type RemoteType<Prop extends object, Meth extends object> = Prop & FilterConditionally<Meth, RPCFunction>
-
-export function remote<Prop extends object, Meth extends object>(
-    ws: WebSocket, base: Prop, cls: new(...args: any[]) => Meth, local?: object
-){
-    let proto = cls.prototype
-    let remote: Remote
-    let proxy = new Proxy(base, {
-        get(base, p, receiver) {
-            let func = (proto as any)[p]
-            if(typeof p === 'string' && !(p in base) && typeof func === 'function' && func.rpc === true){
-                return ((base as any)[p] = (...args: any[]) => remote.apply(p, args))
-            }
-            return Reflect.get(base, p, receiver)
-        },
-    }) as RemoteType<Prop, Meth>
-    remote = new Remote(ws, proxy, local)
-    return proxy
-}
-
-export function local<Prop extends object, Meth extends object>(
-    base: Prop, proto: Meth, other: any
-){
-    let proxy = new Proxy(base, {
-        get(base, p, receiver) {
-            let func = (proto as any)[p]
-            if(typeof p === 'string' && !(p in base) && typeof func === 'function' && func.rpc === true){
-                return ((base as any)[p] = function(...args: any[]){
-                    let that = (this === proxy) ? proto : this
-                    return (func as Function).apply(that, args.concat([ other.other ]))
-                })
-            }
-            return Reflect.get(base, p, receiver)
-        },
-    }) as RemoteType<Prop, Meth>
-    return proxy
-}
+import { WebSocket, RawData } from "ws"
+import { debug } from './shared'
 
 export function rpc(obj: any, key: string /*, desc: PropertyDescriptor*/){
     obj[key].rpc = true
     //desc.value.rpc = true
 }
 
-class Remote {
-    ws: WebSocket
-    caller: object
-    constructor(ws: WebSocket, caller: object, local?: object){
-        this.ws = ws
-        this.caller = caller
-        if(!local){
-            return
+type JSONDataType = string | number | {} | { [k: string]: JSONDataType } | JSONDataType[] | boolean | null
+type CFArgs = JSONDataType[]
+type CFReturn = JSONDataType
+
+// RemotelyCallableLocalFunction
+type RCLF<ARGS extends CFArgs, RETURN extends (CFReturn | void)> =
+    (...args: [...ARGS, LorR<any, any>]) => (RETURN | Promise<RETURN>)
+
+// LocallyCallableRemoteFunction
+type LCRF<ARGS extends CFArgs, RETURN extends CFReturn> =
+    (...args: ARGS) => Promise<RETURN>
+
+type RCLF2LCRF<CALLED> = {
+    [K in keyof CALLED]:
+    CALLED[K] extends RCLF<infer ARGS, infer RETURN> ?
+    LCRF<ARGS, RETURN extends void ? null : RETURN>
+    : undefined
+}
+
+type Ctr<T> = new (...args: any[]) => T
+
+// Local or Remote
+export abstract class LorR<DEFAULT_CALLED = undefined, CALLED_OVERLAY = {}>{
+    p: CALLED_OVERLAY
+    m: RCLF2LCRF<DEFAULT_CALLED>
+    constructor(p: CALLED_OVERLAY) {
+        this.p = p
+        let cache: Record<string, LCRF<any, any>> = {}
+        let remote = this
+        this.m = new Proxy(cache as any, {
+            get(obj: typeof cache, prop, receiver) {
+                if (typeof prop === 'string') {
+                    let cfunc = obj[prop]
+                    if (cfunc !== undefined) {
+                        return cfunc
+                    }
+                    return obj[prop] = (...args: CFArgs) => remote.apply(prop, args)
+                }
+                return undefined
+            },
+        })
+    }
+    protected abstract apply(fname: string, args: CFArgs): Promise<CFReturn>
+}
+
+export class Local<CALLER, DEFAULT_CALLED, CALLED_OVERLAY> extends LorR<DEFAULT_CALLED, CALLED_OVERLAY>{
+    caller?: Local<any, any, any>
+    c: CALLER
+    constructor(c: CALLER, d: Ctr<DEFAULT_CALLED>, p: CALLED_OVERLAY) {
+        super(p)
+        this.c = c
+    }
+    protected async apply(fname: string, args: CFArgs) {
+        let called: any = this.c
+        let func = called[fname]
+        if (typeof func === 'function' && func.rpc) {
+            return await (func as Function).apply(called, [...args, this.caller!]) as CFReturn
         }
-        ws.on('message', async (data) => {
-            let msg_in = JSON.parse(data.toString('utf8'))
-            if(msg_in.type === 'call'){
-                let funcname = msg_in.data?.func
-                let func = (local as any)[funcname]
-                if(typeof func === 'function'){
-                    let data: any = undefined
-                    let error: any = undefined
+        return null
+    }
+}
+
+type RequestMessage = [id: number, fname: string, ...args: JSONDataType[]]
+type ResponseMessage = [id: number, succ: boolean, ret: JSONDataType]
+
+function isRequestMessage(data: JSONDataType): data is RequestMessage {
+    return Array.isArray(data) && data.length >= 2 && typeof data[0] === 'number' && typeof data[1] === 'string'
+}
+
+function isResponseMessage(data: JSONDataType): data is RequestMessage {
+    return Array.isArray(data) && data.length === 3 && typeof data[0] === 'number' && typeof data[1] === 'boolean'
+}
+
+export class Remote<CALLER, DEFAULT_CALLED, CALLED_OVERLAY> extends LorR<DEFAULT_CALLED, CALLED_OVERLAY>{
+    static nextMsgID = 0;
+    ws: WebSocket
+    c: CALLER
+    constructor(c: CALLER, ws: WebSocket, d: Ctr<DEFAULT_CALLED>, p: CALLED_OVERLAY) {
+        super(p)
+        this.c = c
+        this.ws = ws
+        ws.on('message', async (raw_data) => {
+            let data = JSON.parse(raw_data.toString('utf8')) as JSONDataType
+            if (isRequestMessage(data)) {
+                let [ id, fname, ...args ] = data
+                let called: any = this.c
+                let func = called[fname]
+                if(typeof func === 'function' && func.rpc){
+                    let succ = false
+                    let ret: JSONDataType
                     try {
-                        data = await (func as Function).apply(local, msg_in.data.args.concat([ this.caller ]))
-                    } catch (e) {
-                        error = e
+                        ret = await (func as Function).apply(called, [ ...args, this ])
+                        succ = true
+                    } catch(e) {
+                        if(e !== undefined){
+                            ret = e
+                        } else {
+                            ret = 'unknown'
+                        }
                     }
-                    let msg_out = {
-                        id: msg_in.id,
-                        data,
-                        error
-                    }
-                    ws.send(JSON.stringify(msg_out))
+                    ws.send(JSON.stringify([ id, succ, ret] as ResponseMessage))
                 }
             }
         })
     }
-
-    apply(func: string, args?: any[]){
+    protected apply(fname: string, args: CFArgs) {
         let ws = this.ws
-        return new Promise((res, rej) => {
-            let id = Math.floor(Math.random() * (Math.pow(2, 32) - 1)).toString(36)
-            let msg_out = {
-                id,
-                type: 'call',
-                data: {
-                    func,
-                    args
-                }
-            }
+        return new Promise<CFReturn>((res, rej) => {
+
             let onall = () => {
                 ws.on('message', onmessage)
                 ws.on('close', onclose)
@@ -105,33 +128,38 @@ class Remote {
                 ws.off('unexpected-response', onunexpectedresponse)
                 return true
             }
-            let onmessage = (data: RawData) => {
-                let msg_in = JSON.parse(data.toString('utf8'))
-                if (msg_in.id === msg_out.id) {
-                    offall()
-                    if (msg_in.error !== undefined) {
-                        rej(msg_in.error)
-                    } else {
-                        res(msg_in.data)
+
+            let out_id = ((Remote.nextMsgID++) << 1) >>> 1
+            let onmessage = (raw_data: RawData) => {
+                let data = JSON.parse(raw_data.toString('utf8')) as JSONDataType
+                if (isResponseMessage(data)) {
+                    let [ in_id, succ, ret ] = data
+                    if (in_id === out_id) {
+                        offall();
+                        if (succ) {
+                            res(ret)
+                        } else {
+                            rej({ type: 'message', error: ret })
+                        }
                     }
                 }
             }
             let onclose = (code: number, reason: Buffer) => {
                 debug.error('close', code, reason)
-                offall() && rej({ code, reason })
+                offall() && rej({ type: 'onclose', error: { code, reason } })
             }
-            let onerror = (err: Error) => {
-                debug.error('error', err)
-                offall() && rej(err)
+            let onerror = (error: Error) => {
+                debug.error('error', error)
+                offall() && rej({ type: 'error', error })
             }
             let onunexpectedresponse = (request: any/*ClientRequest*/, response: any/*IncomingMessage*/) => {
                 debug.error('unexpected-response', request, response)
-                offall() && rej({ request, response })
+                offall() && rej({ type: 'unexpected-response', error: { request, response } })
             }
 
-            onall()
+            onall();
 
-            ws.send(JSON.stringify(msg_out))
+            ws.send(JSON.stringify([out_id, fname, ...args] as RequestMessage))
         })
     }
 }
