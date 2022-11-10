@@ -40,13 +40,8 @@ export class debug {
     }
 }
 
-export function makeID(len: number) {
-    let res = ''
-    let alph = 'abcdefghijklmnopqrstuvwxyz0123456789';
-    for(let i = 0; i < len; i++){
-        res += alph.charAt(Math.floor(Math.random() * alph.length))
-    }
-    return res
+export function makeID() {
+    return Math.floor(Math.random() * (Math.pow(2,32) - 1)).toString(36)
 }
 
 export const champions = [
@@ -69,3 +64,13 @@ export const champions = [
     'Yasuo',
     'Zed',
 ]
+
+// https://github.com/MatthewBarker/hash-string/blob/master/source/hash-string.js
+// based on Daniel J. Bernstein's 'times 33' hash algorithm.
+export function hash(text: string) {
+    var hash = 5381, index = text.length;
+    while (index) {
+        hash = (hash * 33) ^ text.charCodeAt(--index);
+    }
+    return (hash >>> 0).toString(36);
+}

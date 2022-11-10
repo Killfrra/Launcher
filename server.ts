@@ -6,6 +6,15 @@ import { local, remote, RemoteType, rpc } from './remote'
 import { promises as fs } from 'fs'
 import { spawn } from 'child_process'
 
+enum Permissions {
+    None = 0,
+    CreateRoom = 1
+}
+
+function hasFlag<T extends number>(e: T, f: T){
+    return (e & f) === f;
+}
+
 class ClientProperties {
     static nextID = 1
     id: number
@@ -15,8 +24,10 @@ class ClientProperties {
     ready = false
     champion?: string
     blowfish = '17BLOhi6KZsTtldTsizvHg=='
-    constructor(){
+    perms: Permissions
+    constructor(perms: Permissions = Permissions.None){
         this.id = ClientProperties.nextID++
+        this.perms = perms
     }
 }
 
@@ -84,13 +95,17 @@ export default class Server {
     }
 
     async addLocalClient(localClient: LocalClient, other: { other?: any }){
-        let client = local(new ClientProperties(), localClient, other)
+        let props = new ClientProperties(Permissions.CreateRoom)
+        let client = local(props, localClient, other)
         this.clients.add(client)
         return client
     }
 
     @rpc
     async addRoom(name: string, caller?: Client){
+        if(!(caller && hasFlag(caller.perms, Permissions.CreateRoom))){
+            return
+        }
         let room = new Room(name)
         this.rooms.set(room.id, room)
         for(let client of this.clients.values()){

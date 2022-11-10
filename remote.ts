@@ -1,7 +1,7 @@
 import { WebSocket, RawData } from 'ws';
 import { debug } from './shared';
 
-type FilterConditionally<Source, Condition> = Pick<Source, {[K in keyof Source]: Source[K] extends Condition ? K : never}[keyof Source]>;
+type FilterConditionally<Source, Condition> = Pick<Source, { [K in keyof Source]: Source[K] extends Condition ? K : never }[keyof Source]>;
 
 type RPCFunction = Function //((...args: any[]) => Promise<any>) & { rpc?: boolean }
 export type RemoteType<Prop extends object, Meth extends object> = Prop & FilterConditionally<Meth, RPCFunction>
@@ -9,15 +9,15 @@ export type RemoteType<Prop extends object, Meth extends object> = Prop & Filter
 export function remote<Prop extends object, Meth extends object>(
     ws: WebSocket, base: Prop, cls: new(...args: any[]) => Meth, local?: object
 ){
-    let fake = base
     let proto = cls.prototype
     let remote: Remote
-    let proxy = new Proxy(fake, {
-        get(fake, p, receiver) {
-            if(typeof p === 'string' && !(p in fake) && typeof proto[p] === 'function'){
-                return ((fake as any)[p] = (...args: any[]) => remote.apply(p, args))
+    let proxy = new Proxy(base, {
+        get(base, p, receiver) {
+            let func = (proto as any)[p]
+            if(typeof p === 'string' && !(p in base) && typeof func === 'function' && func.rpc === true){
+                return ((base as any)[p] = (...args: any[]) => remote.apply(p, args))
             }
-            return Reflect.get(fake, p, receiver)
+            return Reflect.get(base, p, receiver)
         },
     }) as RemoteType<Prop, Meth>
     remote = new Remote(ws, proxy, local)
@@ -27,17 +27,16 @@ export function remote<Prop extends object, Meth extends object>(
 export function local<Prop extends object, Meth extends object>(
     base: Prop, proto: Meth, other: any
 ){
-    let fake = base || {}
-    let proxy = new Proxy(fake, {
-        get(fake, p, receiver) {
+    let proxy = new Proxy(base, {
+        get(base, p, receiver) {
             let func = (proto as any)[p]
-            if(typeof p === 'string' && !(p in fake) && typeof func === 'function'){
-                return ((fake as any)[p] = function(...args: any[]){
+            if(typeof p === 'string' && !(p in base) && typeof func === 'function' && func.rpc === true){
+                return ((base as any)[p] = function(...args: any[]){
                     let that = (this === proxy) ? proto : this
                     return (func as Function).apply(that, args.concat([ other.other ]))
                 })
             }
-            return Reflect.get(fake, p, receiver)
+            return Reflect.get(base, p, receiver)
         },
     }) as RemoteType<Prop, Meth>
     return proxy

@@ -1,18 +1,20 @@
 import LocalServer from "./server";
 import { WebSocket } from 'ws';
 import * as sh from './shared'
-import { debug } from './shared'
+import { debug, hash } from './shared'
 import { local, remote, RemoteType, rpc } from './remote'
 import prompts from 'prompts'
 import DSP from './dynsel'
 import kleur from 'kleur'
 
+enum ServerStatus { potential, unreachable, connected, disconnected }
 class ServerProperties {
     id: string
     host: string
     port: number
     name?: string
     rooms = new Map<number, Room>()
+    status = ServerStatus.potential
     constructor(host: string, port: number){
         this.id = host + ':' + port
         this.host = host
@@ -55,23 +57,34 @@ export default class Client {
     private room?: Room
     private ready = false
 
-    private servers = new Map<string, Server>();
+    private servers = {
+        known: new Set<string>(),
+        /*
+        potential: new Map<string, ServerProperties>(),
+        unreachable: new Map<string, ServerProperties>(),
+        */
+        connected: new Map<string, Server>(),
+        /*
+        disconnected: new Map<string, Server>(),
+        */
+    }
+
     private rooms = new Set<Room>();
 
     private inLookup = false
     private inAwaiting = 0
     private roomPrompt = new DSP('room', 'Select room', () => {
-        let title = 'END', n = 0
+        let lasttitle = 'END', n = 0
         if(this.inLookup){
-            title = 'Looking for servers...'
+            lasttitle = 'Looking for servers...'
         } else if((n = this.inAwaiting) > 0){
-            title = `Waiting for a response from ${n} servers...`
+            lasttitle = `Waiting for a response from ${n} servers...`
         }
         return Array.from(this.rooms.values()).map(room => ({
-            title: `${room.name} @ ${room.server.name} (${room.server.host}:${room.server.port})`,
+            title: `${room.name} @ ${room.server.name} (${hash(room.server.id)})`,
             value: room
         })).concat([ {
-            title,
+            title: lasttitle,
             disabled: true
         } as any ])
     })
@@ -95,10 +108,12 @@ export default class Client {
                 value: { join: sh.TeamID.PURP }, title: `Join ${kleur.red('red')} team`,
                 disabled: this.team === sh.TeamID.PURP
             },
+            /*
             {
                 value: { join: sh.TeamID.SPEC }, title: `Join ${kleur.grey('spectators')}`,
                 disabled: true, description: 'You cannot join spectators'
             },
+            */
         ]
         let players = Array.from(this.room!.players.values())
         ret = ret.concat(players.map(player => {
@@ -118,38 +133,51 @@ export default class Client {
         this.dht.on('peer', async (peer: any, infoHash: any, from: any) => {
             let peerID = peer.host + ':' + peer.port
             let fromID = from.address + ':' + from.port
-            if (this.servers.has(peerID)) {
+            if (this.servers.known.has(peerID)) {
                 return
             }
+            this.servers.known.add(peerID)
 
             debug.log('found potential peer ' + peerID + ' through ' + fromID)
 
-            let ws = new WebSocket('ws://' + peerID)
-            let server = remote(ws, new ServerProperties(peer.host, peer.port), LocalServer, this)
-            this.servers.set(server.id, server)
+            let server = new ServerProperties(peer.host, peer.port)
+            //this.servers.potential.set(peerID, server)
+            server.status = ServerStatus.potential
 
-            //TODO: X?
-            ws.on('open', () => {
-                /*await*/ this.getRooms(server)
-            })
-            ws.on('close', (code: number, reason: Buffer) => {
-                debug.error('close', code, reason)
-                /*await*/ this.removeAllRooms(server)
-            })
-            ws.on('error', (err) => {
-                debug.error('error', err)
-                /*await*/ this.removeAllRooms(server!)
-            })
-            ws.on('unexpected-response', (request: any/*ClientRequest*/, response: any/*IncomingMessage*/) => {
-                debug.error('unexpected-response', request, response)
-                /*await*/ this.removeAllRooms(server!)
-            })
+            //TODO: if(this.room === undefined)
+            this.connectServer(server)
+        })
+    }
+
+    private connectServer(prop: ServerProperties){
+        let ws = new WebSocket(`ws://${prop.host}:${prop.port}`)
+        let server = remote(ws, prop, LocalServer, this)
+
+        //TODO: X?
+        ws.on('open', () => {
+            //TODO: remove from other lists
+            this.servers.connected.set(server.id, server)
+            server.status = ServerStatus.connected
+            /*await*/ this.getRooms(server)
+        })
+        ws.on('close', (code: number, reason: Buffer) => {
+            debug.error('close', code, reason)
+            /*await*/ this.removeAllRooms(server)
+        })
+        ws.on('error', (err) => {
+            debug.error('error', err)
+            /*await*/ this.removeAllRooms(server!)
+        })
+        ws.on('unexpected-response', (request: any/*ClientRequest*/, response: any/*IncomingMessage*/) => {
+            debug.error('unexpected-response', request, response)
+            /*await*/ this.removeAllRooms(server!)
         })
     }
 
     async addLocalServer(localServer: LocalServer, other: { other?: any }){
         let server = local(new ServerProperties('', sh.WS_PORT), localServer, other)
-        this.servers.set(server.id, server)
+        this.servers.connected.set(server.id, server)
+        server.status = ServerStatus.connected
         await this.getRooms(server)
         return server
     }

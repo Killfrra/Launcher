@@ -24,7 +24,7 @@ async function main(){
     let clientName: string = (await prompts({
         type: 'text', name: 'name',
         message: 'Enter player name',
-        initial: makeID(8)
+        initial: makeID()
     })).name
 
     let { action } = await prompts({
@@ -55,11 +55,11 @@ async function main(){
         let roomName: string = (await prompts({
             type: 'text', name: 'name',
             message: 'Enter room name',
-            initial: makeID(8)
+            initial: makeID()
         })).name
         let roomID = await server.addRoom(roomName, remoteClient);
 
-        await client.joinRoom(roomID, remoteServer)
+        await client.joinRoom(roomID!, remoteServer)
 
     } else if(action === 'join') {
         let client = new Client(dht, clientName)
