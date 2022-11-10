@@ -33,29 +33,37 @@ abstract class LorR<CALLER, CALLED, CALLED_OVERLAY>{
     c: CALLER
     p: CALLED_OVERLAY
     m: RCLF2LCRF<CALLER, CALLED>
-    constructor(c: CALLER, m: Ctr<CALLED>, p: CALLED_OVERLAY){
+    constructor(c: CALLER, m: CALLED, p: CALLED_OVERLAY){
         this.c = c
         this.p = p
         let cache: Record<string, LCRF<any, any>> = {}
         let remote = this
         this.m = new Proxy(cache as any, {
             get(obj: typeof cache, prop, receiver) {
-                if(typeof prop === 'string')
-                {
-                    if(!(prop in obj)){
-                        let func = m.prototype[prop]
-                        if(typeof func === 'function' && func.rpc === true){
-                            return ((obj as any)[prop] = (...args: any[]) => remote.apply(prop, args))
-                        }
+                if(typeof prop === 'string'){
+                    let cfunc = obj[prop]
+                    if(cfunc !== undefined){
+                        return cfunc
                     }
-                    return obj[prop]
+                    let func = (m as any)[prop]
+                    if(typeof func === 'function'){
+                        return (obj[prop] = (...args: any[]) => remote.apply(prop, args))
+                    }
                 }
                 return undefined
             },
         })
     }
+    async apply(prop: string, args: any[]){
 
-    apply(prop: string, args: any[]){
+    }
+}
+
+class Local<CALLER, CALLED, CALLED_OVERLAY> extends LorR<CALLER, CALLED, CALLED_OVERLAY>{
+    constructor(c: CALLER, m: CALLED, p: CALLED_OVERLAY){
+        super(c, m, p)
+    }
+    async apply(prop: string, args: any[]){
 
     }
 }
@@ -63,13 +71,13 @@ abstract class LorR<CALLER, CALLED, CALLED_OVERLAY>{
 class Remote<CALLER, CALLED, CALLED_OVERLAY> extends LorR<CALLER, CALLED, CALLED_OVERLAY>{
     ws: WebSocket
     constructor(c: CALLER, m: Ctr<CALLED>, p: CALLED_OVERLAY, ws: WebSocket){
-        super(c, m, p)
+        super(c, m.prototype, p)
         this.ws = ws
         ws.on('message', (data) => {
 
         })
     }
-    apply(prop: string, args: any[]){
+    async apply(prop: string, args: any[]){
 
     }
 }
@@ -98,8 +106,8 @@ class ServerProperties {
     }
 }
 
-type Client = Remote<LocalServer, LocalClient, ClientProperties>
-type Server = Remote<LocalClient, LocalServer, ServerProperties>
+type Client = Local<LocalServer, LocalClient, ClientProperties>
+type Server = Local<LocalClient, LocalServer, ServerProperties>
 
 class LocalClient {
     blowfish = 0;
@@ -112,9 +120,11 @@ class LocalServer {
     }
 }
 
-let s = new LocalServer()
-let c = new Remote(s, LocalClient, new ClientProperties())
+let lc = new LocalClient()
+let ls = new LocalServer()
+let c = new Local(ls, lc, new ClientProperties())
+let s = new Local(lc, ls, new ServerProperties('', 0))
 
 c.m.addRooms([]);
 c.p.blowfish;
-({} as Server).m.addRoom('');
+s.m.addRoom('');
