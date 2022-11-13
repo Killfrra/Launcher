@@ -294,7 +294,9 @@ export default class Server
         })
 
         for(let player of players){
-            /*await*/ player.m.launchGameClient(sh.GAMESERVER_PORT, player.p.blowfish, player.p.id)
+            /*await*/ player.m.launchGameClient(
+                sh.GAMESERVER_PORT, player.p.blowfish, player.p.id
+            ).catch() //TODO: propagate
         }
     }
 

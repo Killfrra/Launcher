@@ -446,14 +446,13 @@ export default class Client {
             stdio: 'ignore' as any
         }
         console.log('running', exe, ...args.map(a => `'${a}'`)/*, opts*/)
-        try {
-            let proc = spawn(exe, args, opts)
-            proc.on('close', async (code) => {
-                //TODO:
-            })
-        } catch(e) {
-            console.log(e)
-        }
+        let proc = spawn(exe, args, opts)
+        proc.on('error', (err) => {
+            console.log(err)
+        })
+        proc.on('close', (code) => {
+            //TODO:
+        })
     }
 
     @rpc
