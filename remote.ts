@@ -51,15 +51,15 @@ export abstract class LorR<DEFAULT_CALLED = undefined, CALLED_OVERLAY = {}>{
     protected abstract apply(fname: string, args: CFArgs): Promise<CFReturn>
 }
 
-export class Local<CALLER, DEFAULT_CALLED, CALLED_OVERLAY> extends LorR<DEFAULT_CALLED, CALLED_OVERLAY>{
-    caller?: Local<any, any, any>
-    c: CALLER
-    constructor(c: CALLER, d: Ctr<DEFAULT_CALLED>, p: CALLED_OVERLAY) {
+export class Local<DEFAULT_CALLED, CALLED_OVERLAY> extends LorR<DEFAULT_CALLED, CALLED_OVERLAY>{
+    caller?: Local<any, any>
+    private d: DEFAULT_CALLED
+    constructor(d: DEFAULT_CALLED, p: CALLED_OVERLAY) {
         super(p)
-        this.c = c
+        this.d = d
     }
     protected async apply(fname: string, args: CFArgs) {
-        let called: any = this.c
+        let called: any = this.d
         let func = called[fname]
         if (typeof func === 'function' && func.rpc) {
             return await (func as Function).apply(called, [...args, this.caller!]) as CFReturn
@@ -80,9 +80,9 @@ function isResponseMessage(data: JSONDataType): data is RequestMessage {
 }
 
 export class Remote<CALLER, DEFAULT_CALLED, CALLED_OVERLAY> extends LorR<DEFAULT_CALLED, CALLED_OVERLAY>{
-    static nextMsgID = 0;
-    ws: WebSocket
-    c: CALLER
+    private static nextMsgID = 0;
+    private ws: WebSocket
+    private c: CALLER
     constructor(c: CALLER, ws: WebSocket, d: Ctr<DEFAULT_CALLED>, p: CALLED_OVERLAY) {
         super(p)
         this.c = c

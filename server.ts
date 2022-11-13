@@ -2,7 +2,7 @@ import LocalClient from './client';
 import { WebSocketServer } from 'ws';
 import * as sh from './shared'
 import { debug } from './shared'
-import { Remote, LorR, rpc } from './remote'
+import { Local, Remote, LorR, rpc } from './remote'
 import { promises as fs } from 'fs'
 import { spawn } from 'child_process'
 
@@ -52,61 +52,80 @@ class Room {
     }
 }
 
-export default class Server {
-    
+export default class Server
+{
+    private dht
     private name: string
     
     private clients = new Set<Client>();
     private rooms = new Map<number, Room>();
-    private annouceInterval
+    private annouceInterval?: NodeJS.Timer
     private wss: WebSocketServer
     
     constructor(dht: any, name: string){
+        this.dht = dht
         this.name = name
 
         this.wss = new WebSocketServer({ port: sh.WS_PORT })
         debug.log('WS is now listening on', sh.WS_PORT)
 
+        this.wss.on('connection', (ws, req) => {
+            let client = new Remote(this, ws, LocalClient, new ClientProperties())
+            this.onClientConnect(client)
+
+            ws.on('close', (code: number, reason: Buffer) => {
+                debug.error('close', code, reason)
+                this.onClientDisconnect(client)
+            })
+            ws.on('error', (err) => {
+                debug.error('error', err)
+                this.onClientDisconnect(client)
+            })
+            ws.on('unexpected-response', (request: any/*ClientRequest*/, response: any/*IncomingMessage*/) => {
+                debug.error('unexpected-response', request, response)
+                this.onClientDisconnect(client)
+            })
+        })
+    }
+
+    startAnounce()
+    {
         let announce = () => {
-            dht.announce(sh.INFO_HASH, sh.WS_PORT, () => {
+            this.dht.announce(sh.INFO_HASH, sh.WS_PORT, () => {
                 debug.log('announced self')
             })
         }
         this.annouceInterval = setInterval(announce, sh.DHT_REANNOUNCE_INTERVAL)
         announce()
-
-        this.wss.on('connection', (ws, req) => {
-            let client = new Remote(this, ws, LocalClient, new ClientProperties())
-            this.clients.add(client)
-
-            ws.on('close', (code: number, reason: Buffer) => {
-                debug.error('close', code, reason)
-                this.leaveRoom(client)
-            })
-            ws.on('error', (err) => {
-                debug.error('error', err)
-                this.leaveRoom(client)
-            })
-            ws.on('unexpected-response', (request: any/*ClientRequest*/, response: any/*IncomingMessage*/) => {
-                debug.error('unexpected-response', request, response)
-                this.leaveRoom(client)
-            })
-        })
     }
 
-    /*
-    addLocalClient(localClient: LocalClient, other: { other?: any }){
-        let props = new ClientProperties(Permissions.CreateRoom)
-        let client = local(props, localClient, other)
+    endAnnounce()
+    {
+        clearInterval(this.annouceInterval)
+    }
+
+    setName(to: string){
+        this.name = to
+    }
+
+    private async onClientConnect(client: Client){
         this.clients.add(client)
+    }
+
+    private async onClientDisconnect(client: Client){
+        this.leaveRoom(client)
+    }
+
+    async addLocalClient(localClient: LocalClient){
+        let client = new Local(localClient, new ClientProperties(Permissions.CreateRoom))
+        await this.onClientConnect(client)
         return client
     }
-    */
 
     @rpc
     addRoom(name: string, caller: Client){
-        if(!(caller && hasFlag(caller.p.perms, Permissions.CreateRoom))){
-            return
+        if(!hasFlag(caller.p.perms, Permissions.CreateRoom)){
+            throw 'not enough privileges to create a room'
         }
         let room = new Room(name)
         this.rooms.set(room.id, room)
@@ -120,7 +139,7 @@ export default class Server {
     joinRoom(roomID: number, name: string, caller: Client){
         let room = this.rooms.get(roomID)
         if(room === undefined){
-            throw 'Room not found'
+            throw 'room not found'
         }
         let id = caller.p.id
         let team = sh.TeamID.BLUE as sh.TeamID //TODO:
@@ -160,7 +179,7 @@ export default class Server {
     }
 
     @rpc
-    getRooms(){
+    getRooms(caller: Client){
         return Array.from(this.rooms.values()).map(room => ({ id: room.id, name: room.name }))
     }
 
@@ -185,7 +204,7 @@ export default class Server {
             return false
         }
         
-        await Promise.all(players.map(async player => {
+        await Promise.allSettled(players.map(async player => {
             player.p.champion = await player.m.selectChampion()
         }))
 
@@ -273,7 +292,17 @@ export default class Server {
         })
 
         for(let player of players){
-            /*await*/ player.m.launchGame('', sh.GAMESERVER_PORT, player.p.blowfish, player.p.id)
+            /*await*/ player.m.launchGameClient('', sh.GAMESERVER_PORT, player.p.blowfish, player.p.id)
         }
+    }
+
+    destroy()
+    {
+        this.endAnnounce()
+        for(let client of this.wss.clients)
+        {
+            client.terminate()
+        }
+        this.wss.close()
     }
 }

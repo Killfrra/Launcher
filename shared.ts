@@ -13,6 +13,7 @@ export const TID2str = [ 'spectators', 'blue team', 'red team' ]
 export const WS_PORT = 8080
 export const DHT_PORT = 20000
 export const DHT_REANNOUNCE_INTERVAL = 15 * 60 * 1000
+export const DHT_LOOKUP_INTERVAL = 15 * 60 * 1000
 export const INFO_HASH = sha1.sync('nonexistent')
 const GAMESERVER_RELATIVE_DIR = '../branches/indev' + '/' + 'GameServerConsole/bin/Debug/net6.0'
 

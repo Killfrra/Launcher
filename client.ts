@@ -2,10 +2,19 @@ import LocalServer from "./server";
 import { WebSocket } from 'ws';
 import * as sh from './shared'
 import { debug, hash } from './shared'
-import { Remote, LorR, rpc } from './remote'
+import { Local, Remote, LorR, rpc } from './remote'
 import prompts from 'prompts'
 import DSP from './dynsel'
 import kleur from 'kleur'
+import net from 'net'
+
+const isIP = (i: string) => net.isIP(i) != 0
+const base64regex = /^(?:[A-Za-z0-9+\\/]{4})*(?:[A-Za-z0-9+\\/]{2}(==)?|[A-Za-z0-9+\\/]{3}=?)?$/
+const isBase64 = (i: string) => {
+    return base64regex.test(i)
+}
+
+type u = undefined
 
 enum ServerStatus { potential, unreachable, connected, disconnected }
 class ServerProperties {
@@ -15,6 +24,7 @@ class ServerProperties {
     name?: string
     rooms = new Map<number, Room>()
     status = ServerStatus.potential
+    ws?: WebSocket
     constructor(host: string, port: number){
         this.id = host + ':' + port
         this.host = host
@@ -72,6 +82,7 @@ export default class Client {
     private rooms = new Set<Room>();
 
     private inLookup = false
+    private lookupInterval?: NodeJS.Timer
     private inAwaiting = 0
     private roomPrompt = new DSP('room', 'Select room', () => {
         let lasttitle = 'END', n = 0
@@ -149,40 +160,57 @@ export default class Client {
         })
     }
 
+    setName(to: string){
+        this.name = to
+        return this
+    }
+
     private connectServer(prop: ServerProperties){
         let ws = new WebSocket(`ws://${prop.host}:${prop.port}`)
         let server = new Remote(this, ws, LocalServer, prop)
+        server.p.ws = ws
 
         //TODO: X?
         ws.on('open', () => {
-            //TODO: remove from other lists
-            this.servers.connected.set(server.p.id, server)
-            server.p.status = ServerStatus.connected
-            /*await*/ this.getRooms(server)
+            /*await*/ this.onServerConnect(server)
         })
         ws.on('close', (code: number, reason: Buffer) => {
             debug.error('close', code, reason)
-            /*await*/ this.removeAllRooms(server)
+            /*await*/ this.onServerDisconnect(server)
         })
         ws.on('error', (err) => {
             debug.error('error', err)
-            /*await*/ this.removeAllRooms(server)
+            /*await*/ this.onServerDisconnect(server)
         })
         ws.on('unexpected-response', (request: any/*ClientRequest*/, response: any/*IncomingMessage*/) => {
             debug.error('unexpected-response', request, response)
-            /*await*/ this.removeAllRooms(server)
+            /*await*/ this.onServerDisconnect(server)
         })
     }
 
-    /*
-    async addLocalServer(localServer: LocalServer, other: { other?: any }){
-        let server = local(new ServerProperties('', sh.WS_PORT), localServer, other)
-        this.servers.connected.set(server.id, server)
-        server.status = ServerStatus.connected
+    private async disconnectServer(prop: ServerProperties)
+    {
+        prop.ws?.terminate()
+    }
+
+    private async onServerConnect(server: Server)
+    {
+        //TODO: remove from other lists
+        this.servers.connected.set(server.p.id, server)
+        server.p.status = ServerStatus.connected
         await this.getRooms(server)
+    }
+
+    private async onServerDisconnect(server: Server)
+    {
+        this.removeAllRooms(server)
+    }
+
+    async addLocalServer(localServer: LocalServer){
+        let server = new Local(localServer, new ServerProperties('', sh.WS_PORT))
+        await this.onServerConnect(server)
         return server
     }
-    */
 
     async getRooms(server: Server){
         try {
@@ -229,61 +257,92 @@ export default class Client {
         server.p.rooms.clear()
     }
 
-    async lookup(){
-        //TODO: lookup interval?
-        this.inLookup = true
-        this.dht.lookup(sh.INFO_HASH, () => {
-            this.inLookup = false
-            this.roomPrompt.update()
-        })
-        await this.selectRoom()
-    }
-
-    async selectRoom(){
-        let room = await this.roomPrompt.show()
-        if(room !== undefined){
-            await this.joinRoom(room.id, room.server)
+    startLookup()
+    {
+        let lookup = () => {
+            this.inLookup = true
+            this.dht.lookup(sh.INFO_HASH, () => {
+                this.inLookup = false
+                this.roomPrompt.update()
+            })
         }
-        //TODO: exit to main menu
+        this.lookupInterval = setInterval(lookup, sh.DHT_LOOKUP_INTERVAL)
+        lookup()
     }
 
-    async joinRoom(roomID: number, server: Server){
-        let { id, team, players } = await server.m.joinRoom(roomID, this.name!)
+    endLookup()
+    {
+        clearInterval(this.lookupInterval)
+    }
 
-        this.id = id
-        this.team = team
-        this.room = server.p.rooms.get(roomID)!
-
-        for(let p of players){
-            let player = new Player(p.id, p.name, p.team)
-            this.room.players.set(player.id, player)
+    async screenRooms()
+    {
+        while(true)
+        {
+            let room = await this.roomPrompt.show()
+            if(room === undefined)
+            {
+                break
+            }
+            await this.screenRoom(room.id, room.server)
         }
-        /*async*/ this.selectTeam(server)
     }
 
-    private async selectTeam(server: Server){
-        let team = this.team
-        do {
+    async screenRoom(roomID: number, server: Server)
+    {
+        let room = await this.joinRoom(roomID, server)
+        while(true)
+        {
+            let team = this.team;
             let action = await this.teamPrompt.show()
-            if(action === undefined){
+            if(action === undefined)
+            {
                 await this.leaveRoom()
-                return
-            } else if('join' in action){
+                break
+            }
+            else if('join' in action)
+            {
                 team = action.join
                 if(this.team != team){
                     await server.m.switchTeam(team)
                     this.team = team
-                    this.teamPrompt.update()
                 }
-            } else if('startGame' in action){
+            }
+            else if('startGame' in action)
+            {
                 this.ready = true
                 let everybodyReady = await server.m.startGame()
-                if(!everybodyReady){
+                if(!everybodyReady)
+                {
                     console.log('Waiting for the game to start...')
                 }
-                break
+                await this.screenGameEnd();
             }
-        } while(true)
+        }
+    }
+
+    ongameend?: () => void
+    screenGameEnd()
+    {
+        return new Promise<void>((res, rej) => {
+            this.ongameend = () => {
+                this.ongameend = undefined
+                res()
+            }
+        })
+    }
+
+    async joinRoom(roomID: number, server: Server){
+        let { id, team, players } = await server.m.joinRoom(roomID, this.name!)
+        this.id = id
+        this.team = team
+        this.room = server.p.rooms.get(roomID)!
+        for(let p of players){
+            let player = new Player(p.id, p.name, p.team)
+            this.room.players.clear()
+            this.room.players.set(player.id, player)
+        }
+        return this.room
     }
 
     async leaveRoom(){
@@ -307,7 +366,7 @@ export default class Client {
         this.room.players.set(player.id, player)
         this.teamPrompt.update()
     }
-    
+
     @rpc
     switchTeam(id: number, team: sh.TeamID, server: Server){
         if(server != this.room?.server){
@@ -332,21 +391,33 @@ export default class Client {
     @rpc
     async selectChampion(server: Server){
         if(server != this.room?.server){
-            return
+            throw 'wrong server'
         }
-        let champion = (await prompts({
+        let champion: u|string = (await prompts({
             type: 'autocomplete',
             name: 'name',
             message: 'Select champion',
             choices: sh.champions.map(c => ({ title: c })),
-            initial: 0,
         })).name
+        //TODO: handle exit
+        if(champion === undefined)
+        {
+            throw 'player exited during champion select'
+        }
         return champion
     }
 
     @rpc
-    launchGame(host: string, port: number, blowfish: string, playerID: number, server: Server){
+    launchGameClient(host: string, port: number, blowfish: string, playerID: number, server: Server){
         if(server != this.room?.server){
+            return
+        }
+        if(!(
+            typeof host === 'string' && isIP(host) &&
+            typeof port === 'number' &&
+            typeof blowfish === 'string' && isBase64(blowfish) &&
+            typeof playerID === 'number'
+        )){
             return
         }
         host = host || server.p.host || '127.0.0.1'
@@ -361,7 +432,10 @@ export default class Client {
             return
         }
         console.log('Server exited with code', code)
-        /*await*/ this.selectTeam(server)
+        if(this.ongameend)
+        {
+            this.ongameend()
+        }
     }
 
     @rpc
@@ -370,5 +444,18 @@ export default class Client {
             return
         }
         console.log(msg)
+    }
+
+    destroy()
+    {
+        this.endLookup()
+        if(this.room)
+        {
+            /*await*/ this.leaveRoom()
+        }
+        for(let server of this.servers.connected.values())
+        {
+            this.disconnectServer(server.p)
+        }
     }
 }
