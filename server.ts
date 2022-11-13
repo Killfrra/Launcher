@@ -1,7 +1,7 @@
 import LocalClient from './client';
 import { WebSocketServer } from 'ws';
 import * as sh from './shared'
-import { debug } from './shared'
+import { debug, TeamID } from './shared'
 import { Local, Remote, LorR, rpc } from './remote'
 import { promises as fs } from 'fs'
 import { spawn } from 'child_process'
@@ -19,7 +19,7 @@ class ClientProperties {
     static nextID = 1
     id: number
     name?: string
-    team?: sh.TeamID
+    team?: TeamID
     room?: Room
     ready = false
     champion?: string
@@ -142,7 +142,7 @@ export default class Server
             throw 'room not found'
         }
         let id = caller.p.id
-        let team = sh.TeamID.BLUE as sh.TeamID //TODO:
+        let team = TeamID.BLUE as TeamID //TODO:
         let players = Array.from(this.clients)
             .filter(client => {
                 if(client.p.room === room){
@@ -184,7 +184,7 @@ export default class Server
     }
 
     @rpc
-    switchTeam(team: sh.TeamID, caller: Client){
+    switchTeam(team: TeamID, caller: Client){
         caller.p.team = team
         for(let client of this.clients){
             if(client !== caller && client.p.room === caller.p.room){
@@ -263,13 +263,11 @@ export default class Server
         }
         await fs.writeFile(sh.GAMESERVER_DIR + '/Settings/GameInfo.json', JSON.stringify(config, null, 4), 'utf8')
 
-        let proc = spawn(
-            sh.GAMESERVER_DIR + '/' + sh.GAMESERVER_EXE,
-            [ '--port', sh.GAMESERVER_PORT.toString() ],
-            {
-                cwd: sh.GAMESERVER_DIR
-            }
-        )
+        let exe = sh.GAMESERVER_DIR + '/' + sh.GAMESERVER_EXE
+        let args = [ '--port', sh.GAMESERVER_PORT.toString() ]
+        let opts = { cwd: sh.GAMESERVER_DIR }
+        console.log('running', exe, ...args.map(a => `'${a}'`)/*, opts*/)
+        let proc = spawn(exe, args, opts)
         proc.stdout.setEncoding('utf8');
         proc.on('close', (code) => {
             for(let player of players){
@@ -292,7 +290,7 @@ export default class Server
         })
 
         for(let player of players){
-            /*await*/ player.m.launchGameClient('', sh.GAMESERVER_PORT, player.p.blowfish, player.p.id)
+            /*await*/ player.m.launchGameClient(sh.GAMESERVER_PORT, player.p.blowfish, player.p.id)
         }
     }
 

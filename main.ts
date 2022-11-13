@@ -7,9 +7,9 @@ import { debug, makeID } from './shared'
 
 type u = undefined
 
-let clientName: u|string = makeID()
-let serverName: u|string = makeID()
-let roomName: u|string = makeID()
+let clientName: string = makeID()
+let serverName: string = makeID()
+let roomName: string = makeID()
 
 ///*
 class DHT
@@ -30,15 +30,16 @@ async function main()
     let localServer: u|LocalServer
     while(true)
     {
-        clientName = (await prompts({
+        let new_clientName: u|string = (await prompts({
             type: 'text', name: 'name',
             message: 'Enter player name',
             initial: clientName
         })).name
-        if(clientName === undefined)
+        if(new_clientName === undefined)
         {
             break
         }
+        clientName = new_clientName
         while(true)
         {
             let action: u|string = (await prompts({
@@ -55,24 +56,26 @@ async function main()
             }
             else if(action === 'make')
             {
-                serverName = (await prompts({
+                let new_serverName: u|string = (await prompts({
                     type: 'text', name: 'name',
                     message: 'Enter server name',
                     initial: serverName
                 })).name
-                if(serverName === undefined)
+                if(new_serverName === undefined)
                 {
                     continue;
                 }
-                roomName = (await prompts({
+                serverName = new_serverName
+                let new_roomName: u|string = (await prompts({
                     type: 'text', name: 'name',
                     message: 'Enter room name',
                     initial: roomName
                 })).name
-                if(roomName === undefined)
+                if(new_roomName === undefined)
                 {
                     continue;
                 }
+                roomName = new_roomName
 
                 dht = dht || new DHT()
                 localClient = localClient?.setName(clientName) || new LocalClient(dht, clientName)

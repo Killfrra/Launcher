@@ -15,19 +15,26 @@ export const DHT_PORT = 20000
 export const DHT_REANNOUNCE_INTERVAL = 15 * 60 * 1000
 export const DHT_LOOKUP_INTERVAL = 15 * 60 * 1000
 export const INFO_HASH = sha1.sync('nonexistent')
-const GAMESERVER_RELATIVE_DIR = '../branches/indev' + '/' + 'GameServerConsole/bin/Debug/net6.0'
 
+const LEAGUE_RELATIVE_DIR = '../League-of-Legends-4-20' + '/' + 'RADS/solutions/lol_game_client_sln/releases/0.0.1.68/deploy'
+export const LEAGUE_DIR = path.resolve(LEAGUE_RELATIVE_DIR)
+export const LEAGUE_EXE = 'League of Legends.exe'
+const WINEPREFIX_RELATIVE_DIR = '../../../../.wine64'
+export const WINEPREFIX_DIR = path.resolve(WINEPREFIX_RELATIVE_DIR)
+const GAMESERVER_RELATIVE_DIR = '../branches/indev' + '/' + 'GameServerConsole/bin/Debug/net6.0'
+export const GAMESERVER_DIR = path.resolve(GAMESERVER_RELATIVE_DIR)
+export const GAMESERVER_PORT = 5119
+
+export let LEAGUE_RUNNER = '/usr/bin/wine'
 export let GAMESERVER_EXE = 'GameServerConsole'
 export let CONTENT_PATH = '../../../../Content'
 if(os.platform() === 'win32'){
     GAMESERVER_EXE = 'GameServerConsole.exe'
     CONTENT_PATH = '../../../../../Content' //TODO: check if it is necessary
+    LEAGUE_RUNNER = ''
 }
 
-export const GAMESERVER_DIR = path.resolve(GAMESERVER_RELATIVE_DIR)
-export const GAMESERVER_PORT = 5119
-
-const verbose = process.argv[2] === '-v'
+const verbose = process.argv.slice(2).includes('-v')
 export class debug {
     static log(...args: any[]){
         if(verbose){

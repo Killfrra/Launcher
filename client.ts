@@ -1,12 +1,13 @@
 import LocalServer from "./server";
 import { WebSocket } from 'ws';
 import * as sh from './shared'
-import { debug, hash } from './shared'
+import { debug, hash, TeamID } from './shared'
 import { Local, Remote, LorR, rpc } from './remote'
 import prompts from 'prompts'
 import DSP from './dynsel'
 import kleur from 'kleur'
 import net from 'net'
+import { spawn } from 'child_process'
 
 const isIP = (i: string) => net.isIP(i) != 0
 const base64regex = /^(?:[A-Za-z0-9+\\/]{4})*(?:[A-Za-z0-9+\\/]{2}(==)?|[A-Za-z0-9+\\/]{3}=?)?$/
@@ -37,8 +38,8 @@ type Server = LorR<LocalServer, ServerProperties>
 class Player {
     id: number
     name: string
-    team: sh.TeamID
-    constructor(id: number, name: string, team: sh.TeamID){
+    team: TeamID
+    constructor(id: number, name: string, team: TeamID){
         this.id = id
         this.name = name
         this.team = team
@@ -63,7 +64,7 @@ export default class Client {
     private name: string
 
     private id?: number
-    private team?: sh.TeamID
+    private team?: TeamID
     private room?: Room
     private ready = false
 
@@ -103,7 +104,7 @@ export default class Client {
     private teamPrompt = new DSP('team', 'Select action', () => {
         let ret: ({
             title: string;
-            value?: { join: sh.TeamID } | { startGame: true }
+            value?: { join: TeamID } | { startGame: true }
             disabled?: boolean;
             description?: string;
         })[] = [
@@ -112,16 +113,16 @@ export default class Client {
                 disabled: false
             },
             {
-                value: { join: sh.TeamID.BLUE }, title: `Join ${kleur.blue('blue')} team`,
-                disabled: this.team === sh.TeamID.BLUE
+                value: { join: TeamID.BLUE }, title: `Join ${kleur.blue('blue')} team`,
+                disabled: this.team === TeamID.BLUE
             },
             {
-                value: { join: sh.TeamID.PURP }, title: `Join ${kleur.red('red')} team`,
-                disabled: this.team === sh.TeamID.PURP
+                value: { join: TeamID.PURP }, title: `Join ${kleur.red('red')} team`,
+                disabled: this.team === TeamID.PURP
             },
             /*
             {
-                value: { join: sh.TeamID.SPEC }, title: `Join ${kleur.grey('spectators')}`,
+                value: { join: TeamID.SPEC }, title: `Join ${kleur.grey('spectators')}`,
                 disabled: true, description: 'You cannot join spectators'
             },
             */
@@ -358,9 +359,9 @@ export default class Client {
     }
 
     @rpc
-    addPlayer(p: {id: number, team: sh.TeamID, name: string}, server: Server){
+    addPlayer(p: {id: number, team: TeamID, name: string}, server: Server){
         if(server != this.room?.server){
-            return
+            throw 'wrong server'
         }
         let player = new Player(p.id, p.name, p.team)
         this.room.players.set(player.id, player)
@@ -368,9 +369,9 @@ export default class Client {
     }
 
     @rpc
-    switchTeam(id: number, team: sh.TeamID, server: Server){
+    switchTeam(id: number, team: TeamID, server: Server){
         if(server != this.room?.server){
-            return
+            throw 'wrong server'
         }
         let player = this.room.players.get(id);
         if(player !== undefined){
@@ -382,7 +383,7 @@ export default class Client {
     @rpc
     removePlayer(id: number, server: Server){
         if(server != this.room?.server){
-            return
+            throw 'wrong server'
         }
         this.room.players.delete(id)
         this.teamPrompt.update()
@@ -408,22 +409,46 @@ export default class Client {
     }
 
     @rpc
-    launchGameClient(host: string, port: number, blowfish: string, playerID: number, server: Server){
+    launchGameClient(port: number, blowfish: string, playerID: number, server: Server){
         if(server != this.room?.server){
-            return
+            throw 'wrong server'
         }
         if(!(
-            typeof host === 'string' && isIP(host) &&
             typeof port === 'number' &&
-            typeof blowfish === 'string' && isBase64(blowfish) &&
+            typeof blowfish === 'string' && (blowfish === '' || isBase64(blowfish)) &&
             typeof playerID === 'number'
         )){
-            return
+            console.log('strange connection details')
+            this.ongameend?.call(null)
+            throw 'strange connection details'
         }
-        host = host || server.p.host || '127.0.0.1'
+        let host = server.p.host || '127.0.0.1'
         port = port || 5119
         blowfish = blowfish || '17BLOhi6KZsTtldTsizvHg=='
-        console.log(`wine 'League of Legends.exe' '' '' '' '${host} ${port} ${blowfish} ${playerID}'`);
+        
+        let exe = sh.LEAGUE_EXE
+        let args = [ '', '', '', `${host} ${port} ${blowfish} ${playerID}` ]
+        if(sh.LEAGUE_RUNNER)
+        {
+            args.unshift(exe)
+            exe = sh.LEAGUE_RUNNER
+        }
+        let opts = {
+            cwd: sh.LEAGUE_DIR,
+            env: {
+                ...process.env,
+                'WINEPREFIX': sh.WINEPREFIX_DIR //TODO: hmm...
+            }
+        };
+        console.log('running', exe, ...args.map(a => `'${a}'`)/*, opts*/)
+        try {
+            let proc = spawn(exe, args, opts)
+            proc.on('close', async (code) => {
+                //TODO:
+            })
+        } catch(e) {
+            console.log(e)
+        }
     }
 
     @rpc
@@ -432,10 +457,7 @@ export default class Client {
             return
         }
         console.log('Server exited with code', code)
-        if(this.ongameend)
-        {
-            this.ongameend()
-        }
+        this.ongameend?.call(null)
     }
 
     @rpc
