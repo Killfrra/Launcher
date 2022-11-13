@@ -260,6 +260,10 @@ export default class Client {
 
     startLookup()
     {
+        if(this.lookupInterval)
+        {
+            return
+        }
         let lookup = () => {
             this.inLookup = true
             this.dht.lookup(sh.INFO_HASH, () => {
@@ -426,20 +430,21 @@ export default class Client {
         port = port || 5119
         blowfish = blowfish || '17BLOhi6KZsTtldTsizvHg=='
         
-        let exe = sh.LEAGUE_EXE
+        let exe = sh.LEAGUE_DIR + '/' + sh.LEAGUE_EXE
         let args = [ '', '', '', `${host} ${port} ${blowfish} ${playerID}` ]
         if(sh.LEAGUE_RUNNER)
         {
-            args.unshift(exe)
             exe = sh.LEAGUE_RUNNER
+            args.unshift(sh.LEAGUE_EXE)
         }
         let opts = {
             cwd: sh.LEAGUE_DIR,
             env: {
                 ...process.env,
                 'WINEPREFIX': sh.WINEPREFIX_DIR //TODO: hmm...
-            }
-        };
+            },
+            stdio: 'ignore' as any
+        }
         console.log('running', exe, ...args.map(a => `'${a}'`)/*, opts*/)
         try {
             let proc = spawn(exe, args, opts)

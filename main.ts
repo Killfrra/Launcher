@@ -3,7 +3,7 @@ import LocalClient from './client'
 import LocalServer from './server'
 import { debug, makeID } from './shared'
 //@ts-ignore
-//import DHT from 'bittorrent-dht'
+import DHT from 'bittorrent-dht'
 
 type u = undefined
 
@@ -11,7 +11,7 @@ let clientName: string = makeID()
 let serverName: string = makeID()
 let roomName: string = makeID()
 
-///*
+/*
 class DHT
 {
     on(evt: string, cb?: (peer: any, infoHash: any, from: any) => void){}
@@ -86,6 +86,7 @@ async function main()
                 server.caller = client
 
                 let roomID = localServer.addRoom(roomName, client)
+                localServer.startAnounce() //TODO: move to ctr?
 
                 await localClient.screenRoom(roomID, server)
             }
@@ -93,6 +94,7 @@ async function main()
             {
                 dht = dht || new DHT()
                 localClient = localClient?.setName(clientName) || new LocalClient(dht, clientName)
+                localClient.startLookup() //TODO: move to screenRooms?
                 await localClient.screenRooms()
             }
         }

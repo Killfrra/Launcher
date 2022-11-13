@@ -90,6 +90,10 @@ export default class Server
 
     startAnounce()
     {
+        if(this.annouceInterval)
+        {
+            return
+        }
         let announce = () => {
             this.dht.announce(sh.INFO_HASH, sh.WS_PORT, () => {
                 debug.log('announced self')
