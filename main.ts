@@ -1,9 +1,12 @@
 import prompts from 'prompts'
 import LocalClient from './client'
 import LocalServer from './server'
-import { debug, makeID } from './shared'
+import { makeID } from './shared'
+import * as sh from './shared'
 //@ts-ignore
 import DHT from 'bittorrent-dht'
+import { promises as fs } from 'fs'
+import { constants as fs_constants } from 'fs'
 
 type u = undefined
 
@@ -11,8 +14,7 @@ let clientName: string = makeID()
 let serverName: string = makeID()
 let roomName: string = makeID()
 
-/*
-class DHT
+class DHTFake
 {
     on(evt: string, cb?: (peer: any, infoHash: any, from: any) => void){}
     lookup(hash: string, cb?: () => void){}
@@ -20,12 +22,78 @@ class DHT
     announce(hash: string, port: number, cb?: () => void){}
     destroy(cb?: () => void){}
 }
-//*/
 
+function newDHT()
+{
+    return new DHTFake()
+}
+/*
+async function manageClient()
+{
+    let action: u|string = (await prompts({
+        type: 'select', name: 'name',
+        message: 'Select action',
+        choices: [
+            { title: 'Make custom game', value: 'make' },
+            { title: 'Join custom game', value: 'join' },
+        ]
+    })).name
+    if(action === undefined)
+    {
+        return false
+    }
+    else
+    {
+
+    }
+    return true
+}
+
+async function screenManageClient()
+{
+    while(await manageClient());
+}
+*/
 main()
 async function main()
 {
-    let dht: u|DHT
+
+    let serverEXE = sh.GAMESERVER_DIR + '/' + sh.GAMESERVER_EXE
+    let clientEXE = sh.LEAGUE_DIR + '/' + sh.LEAGUE_EXE
+    let clientMode = fs_constants.X_OK
+    if(sh.LEAGUE_RUNNER)
+    {
+        try
+        {
+            await fs.access(sh.LEAGUE_RUNNER, clientMode)
+        }
+        catch(e)
+        {
+            console.log(e)
+            return
+        }
+        clientMode = fs_constants.R_OK
+    }
+    try
+    {
+        await fs.access(clientEXE, clientMode)
+    }
+    catch(e)
+    {
+        console.log(e)
+        return
+    }
+    try
+    {
+        await fs.access(serverEXE, fs_constants.X_OK)
+    }
+    catch(e)
+    {
+        console.log(e)
+        return
+    }
+
+    let dht: u|DHT|DHTFake
     let localClient: u|LocalClient
     let localServer: u|LocalServer
     while(true)
@@ -77,7 +145,7 @@ async function main()
                 }
                 roomName = new_roomName
 
-                dht = dht || new DHT()
+                dht = dht || newDHT()
                 localClient = localClient?.setName(clientName) || new LocalClient(dht, clientName)
                 localServer = localServer?.setName(serverName) || new LocalServer(dht, serverName)
                 let client = await localServer.addLocalClient(localClient)
@@ -92,7 +160,7 @@ async function main()
             }
             else if(action === 'join')
             {
-                dht = dht || new DHT()
+                dht = dht || newDHT()
                 localClient = localClient?.setName(clientName) || new LocalClient(dht, clientName)
                 localClient.startLookup() //TODO: move to screenRooms?
                 await localClient.screenRooms()
