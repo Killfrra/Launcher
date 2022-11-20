@@ -56,15 +56,20 @@ async function checkFileHash(file: string, hash: string)
 {
     return false    
 }
+async function downloadAndUnpackArchive(desc: string, archive: string, hash: string)
+{
+    if(!(await checkFile(desc + ' ' + 'archive', fs_constants.R_OK, archive, hash)))
+    {
+        // download archive            
+    }
+    // unpack archive
+    return true
+}
 async function checkFileAndDownloadAndUnpackArchive(desc: string, type: string, mode: number, file: string, archive: string, hash: string)
 {
     if(!(await checkFile(desc + ' ' + type, mode, file)))
     {
-        if(!(await checkFile(desc + ' ' + 'archive', fs_constants.R_OK, archive, hash)))
-        {
-            // download archive            
-        }
-        // unpack archive
+        return await downloadAndUnpackArchive(desc, archive, hash)
     }
     return true
 }
@@ -81,20 +86,20 @@ async function main()
         mode = fs_constants.R_OK
     }
     if(!(await checkFileAndDownloadAndUnpackArchive(
-        'game client', 'exe', mode, sh.CLIENT_DIR + '/' + sh.CLIENT_EXE,
+        'game client', 'exe', mode, sh.CLIENT_DIR + '/' + sh.CLIENT_BIN_DIR + '/' + sh.CLIENT_EXE,
         sh.CLIENT_ARCHIVE, sh.CLIENT_ARCHIVE_HASH
     )))
     {
         return
     }
     if(!(await checkFileAndDownloadAndUnpackArchive(
-        'game server', 'exe', fs_constants.X_OK, sh.SERVER_DIR + '/' + sh.SERVER_EXE,
+        'game server', 'exe', fs_constants.X_OK, sh.SERVER_DIR + '/' + sh.SERVER_BIN_DIR + '/' + sh.SERVER_EXE,
         sh.SERVER_ARCHIVE, sh.SERVER_ARCHIVE_HASH
     )))
     {
         return
     }
-    if(!(await checkFile('game server cfg', fs_constants.W_OK, sh.SERVER_DIR + '/' + sh.SERVER_CFG)))
+    if(!(await checkFile('game server cfg', fs_constants.W_OK, sh.SERVER_DIR + '/' + sh.SERVER_BIN_DIR + '/' + sh.SERVER_CFG)))
     {
         return
     }

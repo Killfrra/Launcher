@@ -233,7 +233,7 @@ export default class Server
                 CHEATS_ENABLED: room.gameInfo.cheats,
                 MINION_SPAWNS_ENABLED: room.gameInfo.minions,
 
-                CONTENT_PATH: sh.CONTENT_PATH,
+                CONTENT_PATH: sh.SERVER_CONTENT_PATH,
                 IS_DAMAGE_TEXT_GLOBAL: false,
                 ENDGAME_HTTP_POST_ADDRESS: "",
             },
@@ -265,11 +265,11 @@ export default class Server
                 }        
             })),
         }
-        await fs.writeFile(sh.SERVER_DIR + '/' + sh.SERVER_CFG, JSON.stringify(config, null, 4), 'utf8')
+        await fs.writeFile(sh.SERVER_DIR + '/' + sh.SERVER_BIN_DIR + '/' + sh.SERVER_CFG, JSON.stringify(config, null, 4), 'utf8')
 
-        let exe = sh.SERVER_DIR + '/' + sh.SERVER_EXE
+        let exe = sh.SERVER_DIR + '/' + sh.SERVER_BIN_DIR + '/' + sh.SERVER_EXE
         let args = [ '--port', sh.SERVER_PORT.toString() ]
-        let opts = { cwd: sh.SERVER_DIR }
+        let opts = { cwd: sh.SERVER_DIR + '/' + sh.SERVER_BIN_DIR }
         console.log('running', exe, ...args.map(a => `'${a}'`)/*, opts*/)
         let proc = spawn(exe, args, opts)
         proc.stdout.setEncoding('utf8');
