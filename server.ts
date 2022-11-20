@@ -265,11 +265,11 @@ export default class Server
                 }        
             })),
         }
-        await fs.writeFile(sh.GAMESERVER_DIR + '/' + sh.GAMESERVER_CFG, JSON.stringify(config, null, 4), 'utf8')
+        await fs.writeFile(sh.SERVER_DIR + '/' + sh.SERVER_CFG, JSON.stringify(config, null, 4), 'utf8')
 
-        let exe = sh.GAMESERVER_DIR + '/' + sh.GAMESERVER_EXE
-        let args = [ '--port', sh.GAMESERVER_PORT.toString() ]
-        let opts = { cwd: sh.GAMESERVER_DIR }
+        let exe = sh.SERVER_DIR + '/' + sh.SERVER_EXE
+        let args = [ '--port', sh.SERVER_PORT.toString() ]
+        let opts = { cwd: sh.SERVER_DIR }
         console.log('running', exe, ...args.map(a => `'${a}'`)/*, opts*/)
         let proc = spawn(exe, args, opts)
         proc.stdout.setEncoding('utf8');
@@ -295,7 +295,7 @@ export default class Server
 
         for(let player of players){
             /*await*/ player.m.launchGameClient(
-                sh.GAMESERVER_PORT, player.p.blowfish, player.p.id
+                sh.SERVER_PORT, player.p.blowfish, player.p.id
             ).catch() //TODO: propagate
         }
     }

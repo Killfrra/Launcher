@@ -430,15 +430,15 @@ export default class Client {
         port = port || 5119
         blowfish = blowfish || '17BLOhi6KZsTtldTsizvHg=='
         
-        let exe = sh.LEAGUE_DIR + '/' + sh.LEAGUE_EXE
+        let exe = sh.CLIENT_DIR + '/' + sh.CLIENT_EXE
         let args = [ '', '', '', `${host} ${port} ${blowfish} ${playerID}` ]
-        if(sh.LEAGUE_RUNNER)
+        if(sh.CLIENT_RUNNER)
         {
-            exe = sh.LEAGUE_RUNNER
-            args.unshift(sh.LEAGUE_EXE)
+            exe = sh.CLIENT_RUNNER
+            args.unshift(sh.CLIENT_EXE)
         }
         let opts = {
-            cwd: sh.LEAGUE_DIR,
+            cwd: sh.CLIENT_DIR,
             env: {
                 ...process.env,
                 'WINEPREFIX': sh.WINEPREFIX_DIR //TODO: hmm...

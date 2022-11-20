@@ -16,28 +16,29 @@ export const DHT_REANNOUNCE_INTERVAL = 15 * 60 * 1000
 export const DHT_LOOKUP_INTERVAL = 15 * 60 * 1000
 export const INFO_HASH = sha1.sync('nonexistent')
 
-const LEAGUE_RELATIVE_DIR = '../League-of-Legends-4-20' + '/' + 'RADS/solutions/lol_game_client_sln/releases/0.0.1.68/deploy'
-export const LEAGUE_DIR = path.resolve(LEAGUE_RELATIVE_DIR)
-export const LEAGUE_EXE = 'League of Legends.exe'
+const CLIENT_RELATIVE_DIR = 'GameClient'
+export const CLIENT_DIR = path.resolve(CLIENT_RELATIVE_DIR)
+export const CLIENT_EXE = 'League of Legends.exe'
 const WINEPREFIX_RELATIVE_DIR = '../../../../.wine64'
 export const WINEPREFIX_DIR = path.resolve(WINEPREFIX_RELATIVE_DIR)
-const GAMESERVER_RELATIVE_DIR = '../branches/indev' + '/' + 'GameServerConsole/bin/Debug/net6.0'
-export const GAMESERVER_DIR = path.resolve(GAMESERVER_RELATIVE_DIR)
-export const GAMESERVER_PORT = 5119
-export const GAMESERVER_CFG = 'Settings/GameInfo.json'
+const SERVER_RELATIVE_DIR = 'GameServer'
+export const SERVER_BIN_DIR = 'GameServerConsole/bin/Debug/net6.0'
+export const SERVER_DIR = path.resolve(SERVER_RELATIVE_DIR)
+export const SERVER_PORT = 5119
+export const SERVER_CFG = 'Settings/GameInfo.json'
 export const CACHE_DIR = 'cache'
-export const LEAGUE_ARCHIVE = CACHE_DIR + '/' + 'GameClient.7z'
-export const LEAGUE_ARCHIVE_HASH = ''
-export const GAMESERVER_ARCHIVE = CACHE_DIR + '/' + 'GameServer.7z'
-export const GAMESERVER_ARCHIVE_HASH = ''
+export const CLIENT_ARCHIVE = CACHE_DIR + '/' + 'GameClient.7z'
+export const CLIENT_ARCHIVE_HASH = ''
+export const SERVER_ARCHIVE = CACHE_DIR + '/' + 'GameServer.7z'
+export const SERVER_ARCHIVE_HASH = ''
 
-export let LEAGUE_RUNNER = '/usr/bin/wine'
-export let GAMESERVER_EXE = 'GameServerConsole'
+export let CLIENT_RUNNER = '/usr/bin/wine'
+export let SERVER_EXE = 'GameServerConsole'
 export let CONTENT_PATH = '../../../../Content'
 if(os.platform() === 'win32'){
-    GAMESERVER_EXE = 'GameServerConsole.exe'
+    SERVER_EXE = 'GameServerConsole.exe'
     CONTENT_PATH = '../../../../../Content' //TODO: check if it is necessary
-    LEAGUE_RUNNER = ''
+    CLIENT_RUNNER = ''
 }
 
 const verbose = process.argv.slice(2).includes('-v')

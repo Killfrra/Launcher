@@ -34,11 +34,15 @@ let perm2str = {
     [fs_constants.W_OK]: 'written',
     [fs_constants.X_OK]: 'executed',
 }
-async function checkFile(desc: string, mode: number, file: string)
+async function checkFile(desc: string, mode: number, file: string, hash?: string)
 {
     try
     {
         await fs.access(file, mode)
+        if(hash !== undefined)
+        {
+            return checkFileHash(file, hash)
+        }
         return true
     }
     catch(e)
@@ -52,45 +56,45 @@ async function checkFileHash(file: string, hash: string)
 {
     return false    
 }
+async function checkFileAndDownloadAndUnpackArchive(desc: string, type: string, mode: number, file: string, archive: string, hash: string)
+{
+    if(!(await checkFile(desc + ' ' + type, mode, file)))
+    {
+        if(!(await checkFile(desc + ' ' + 'archive', fs_constants.R_OK, archive, hash)))
+        {
+            // download archive            
+        }
+        // unpack archive
+    }
+    return true
+}
 main()
 async function main()
 {
     let mode = fs_constants.X_OK
-    if(sh.LEAGUE_RUNNER)
+    if(sh.CLIENT_RUNNER)
     {
-        if(!(await checkFile('runner exe', mode, sh.LEAGUE_RUNNER)))
+        if(!(await checkFile('runner exe', mode, sh.CLIENT_RUNNER)))
         {
             return
         }
         mode = fs_constants.R_OK
     }
-    if(!(await checkFile('game client exe', mode, sh.LEAGUE_DIR + '/' + sh.LEAGUE_EXE)))
+    if(!(await checkFileAndDownloadAndUnpackArchive(
+        'game client', 'exe', mode, sh.CLIENT_DIR + '/' + sh.CLIENT_EXE,
+        sh.CLIENT_ARCHIVE, sh.CLIENT_ARCHIVE_HASH
+    )))
     {
-        if(await checkFile('game client archive', mode, sh.LEAGUE_ARCHIVE))
-        {
-            let matches = await checkFileHash(sh.LEAGUE_ARCHIVE, sh.LEAGUE_ARCHIVE_HASH)
-            
-        }
-        let action: u|string = (await prompts({
-            type: 'select', name: 'name',
-            message: 'Select action',
-            choices: [
-                { title: 'Specify the client folder', value: 'set_folder' },
-                { title: 'Specify the client archive', value: 'set_archive' },
-                { title: 'Download the client archive', value: 'download' },
-                { title: 'Use corrupted client archive file', value: 'use_corrupted' }
-            ]
-        })).name
-        if(action === undefined)
-        {
-            return
-        }
+        return
     }
-    if(!(await checkFile('game server exe', fs_constants.X_OK, sh.GAMESERVER_DIR + '/' + sh.GAMESERVER_EXE)))
+    if(!(await checkFileAndDownloadAndUnpackArchive(
+        'game server', 'exe', fs_constants.X_OK, sh.SERVER_DIR + '/' + sh.SERVER_EXE,
+        sh.SERVER_ARCHIVE, sh.SERVER_ARCHIVE_HASH
+    )))
     {
-
+        return
     }
-    if(!(await checkFile('game server cfg', fs_constants.W_OK, sh.GAMESERVER_DIR + '/' + sh.GAMESERVER_CFG)))
+    if(!(await checkFile('game server cfg', fs_constants.W_OK, sh.SERVER_DIR + '/' + sh.SERVER_CFG)))
     {
         return
     }
