@@ -265,7 +265,7 @@ export default class Server
                 }        
             })),
         }
-        await fs.writeFile(sh.GAMESERVER_DIR + '/Settings/GameInfo.json', JSON.stringify(config, null, 4), 'utf8')
+        await fs.writeFile(sh.GAMESERVER_DIR + '/' + sh.GAMESERVER_CFG, JSON.stringify(config, null, 4), 'utf8')
 
         let exe = sh.GAMESERVER_DIR + '/' + sh.GAMESERVER_EXE
         let args = [ '--port', sh.GAMESERVER_PORT.toString() ]

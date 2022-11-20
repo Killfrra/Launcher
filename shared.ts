@@ -24,6 +24,12 @@ export const WINEPREFIX_DIR = path.resolve(WINEPREFIX_RELATIVE_DIR)
 const GAMESERVER_RELATIVE_DIR = '../branches/indev' + '/' + 'GameServerConsole/bin/Debug/net6.0'
 export const GAMESERVER_DIR = path.resolve(GAMESERVER_RELATIVE_DIR)
 export const GAMESERVER_PORT = 5119
+export const GAMESERVER_CFG = 'Settings/GameInfo.json'
+export const CACHE_DIR = 'cache'
+export const LEAGUE_ARCHIVE = CACHE_DIR + '/' + 'GameClient.7z'
+export const LEAGUE_ARCHIVE_HASH = ''
+export const GAMESERVER_ARCHIVE = CACHE_DIR + '/' + 'GameServer.7z'
+export const GAMESERVER_ARCHIVE_HASH = ''
 
 export let LEAGUE_RUNNER = '/usr/bin/wine'
 export let GAMESERVER_EXE = 'GameServerConsole'

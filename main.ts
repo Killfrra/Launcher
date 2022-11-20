@@ -1,7 +1,7 @@
 import prompts from 'prompts'
 import LocalClient from './client'
 import LocalServer from './server'
-import { makeID } from './shared'
+import { debug, makeID } from './shared'
 import * as sh from './shared'
 //@ts-ignore
 import DHT from 'bittorrent-dht'
@@ -27,69 +27,71 @@ function newDHT()
 {
     return new DHTFake()
 }
-/*
-async function manageClient()
+
+let perm2str = {
+    [fs_constants.F_OK]: 'found',
+    [fs_constants.R_OK]: 'read',
+    [fs_constants.W_OK]: 'written',
+    [fs_constants.X_OK]: 'executed',
+}
+async function checkFile(desc: string, mode: number, file: string)
 {
-    let action: u|string = (await prompts({
-        type: 'select', name: 'name',
-        message: 'Select action',
-        choices: [
-            { title: 'Make custom game', value: 'make' },
-            { title: 'Join custom game', value: 'join' },
-        ]
-    })).name
-    if(action === undefined)
+    try
     {
+        await fs.access(file, mode)
+        return true
+    }
+    catch(e)
+    {
+        console.log(`The ${desc} could not be ${perm2str[mode]}`)
+        debug.log(e)
         return false
     }
-    else
-    {
-
-    }
-    return true
 }
-
-async function screenManageClient()
+async function checkFileHash(file: string, hash: string)
 {
-    while(await manageClient());
+    return false    
 }
-*/
 main()
 async function main()
 {
-
-    let serverEXE = sh.GAMESERVER_DIR + '/' + sh.GAMESERVER_EXE
-    let clientEXE = sh.LEAGUE_DIR + '/' + sh.LEAGUE_EXE
-    let clientMode = fs_constants.X_OK
+    let mode = fs_constants.X_OK
     if(sh.LEAGUE_RUNNER)
     {
-        try
+        if(!(await checkFile('runner exe', mode, sh.LEAGUE_RUNNER)))
         {
-            await fs.access(sh.LEAGUE_RUNNER, clientMode)
-        }
-        catch(e)
-        {
-            console.log(e)
             return
         }
-        clientMode = fs_constants.R_OK
+        mode = fs_constants.R_OK
     }
-    try
+    if(!(await checkFile('game client exe', mode, sh.LEAGUE_DIR + '/' + sh.LEAGUE_EXE)))
     {
-        await fs.access(clientEXE, clientMode)
+        if(await checkFile('game client archive', mode, sh.LEAGUE_ARCHIVE))
+        {
+            let matches = await checkFileHash(sh.LEAGUE_ARCHIVE, sh.LEAGUE_ARCHIVE_HASH)
+            
+        }
+        let action: u|string = (await prompts({
+            type: 'select', name: 'name',
+            message: 'Select action',
+            choices: [
+                { title: 'Specify the client folder', value: 'set_folder' },
+                { title: 'Specify the client archive', value: 'set_archive' },
+                { title: 'Download the client archive', value: 'download' },
+                { title: 'Use corrupted client archive file', value: 'use_corrupted' }
+            ]
+        })).name
+        if(action === undefined)
+        {
+            return
+        }
     }
-    catch(e)
+    if(!(await checkFile('game server exe', fs_constants.X_OK, sh.GAMESERVER_DIR + '/' + sh.GAMESERVER_EXE)))
     {
-        console.log(e)
-        return
+
     }
-    try
+    if(!(await checkFile('game server cfg', fs_constants.W_OK, sh.GAMESERVER_DIR + '/' + sh.GAMESERVER_CFG)))
     {
-        await fs.access(serverEXE, fs_constants.X_OK)
-    }
-    catch(e)
-    {
-        console.log(e)
         return
     }
 
