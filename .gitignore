@@ -3,3 +3,4 @@ node_modules/
 *.js.map
 pnpm-lock.yaml
 package-lock.json
+updater/secret_key.txt

@@ -85,7 +85,7 @@ export default class MutableWebTorrent extends WebTorrent {
         })
     }
 
-    resolve(publicKeyString: string, callback: Callback) {
+    resolve(publicKeyString: string, callback: Callback<{ infoHash: Buffer, sequence: number }>) {
         let publicKey = Buffer.from(publicKeyString, 'hex')
         sha1(publicKey, (targetID) => {
             this.dht.get(targetID, (err, res) => {
@@ -110,8 +110,7 @@ export default class MutableWebTorrent extends WebTorrent {
         const buffSecKey = Buffer.from(secretKeyString, 'hex')
 
         sha1(buffPubKey, (targetID) => {
-            const dht = this.dht
-
+            
             const opts = {
                 k: buffPubKey,
                 seq: options.sequence,
@@ -123,7 +122,7 @@ export default class MutableWebTorrent extends WebTorrent {
                 },
             }
 
-            dht.get(targetID, (err, res) => {
+            this.dht.get(targetID, (err, res) => {
                 if (err) {
                     return callback(err)
                 }
@@ -131,7 +130,7 @@ export default class MutableWebTorrent extends WebTorrent {
                 if(res && res.seq) {
                     sequence = opts.seq = res.seq + 1
                 }
-                dht.put(opts, (putErr, hash) => {
+                this.dht.put(opts, (putErr, hash) => {
                     if (putErr) {
                         return callback(putErr)
                     }
@@ -149,22 +148,20 @@ export default class MutableWebTorrent extends WebTorrent {
     republish(publicKeyString: string, callback: Callback = noop) {
         const buffPubKey = Buffer.from(publicKeyString, 'hex')
         sha1(buffPubKey, (targetID) => {
-            const dht = this.dht
-
-            dht.get(targetID, (err, res) => {
+            this.dht.get(targetID, (err, res) => {
                 if (err || !res) {
                     callback(err)
                     callback = noop //TODO: Investigate
                     return
                 }
-                dht.put(res, (err) => {
+                this.dht.put(res, (err) => {
                     callback(err)
                 })
             })
         })
     }
 
-    createKeypair(seed: any) {
+    static createKeypair(seed?: any) {
         const publicKey = Buffer.alloc(sodium.crypto_sign_PUBLICKEYBYTES)
         const secretKey = Buffer.alloc(sodium.crypto_sign_SECRETKEYBYTES)
         if (seed) {
