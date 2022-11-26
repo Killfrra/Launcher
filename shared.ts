@@ -18,7 +18,8 @@ export const INFO_HASH = sha1.sync('nonexistent')
 
 const CLIENT_RELATIVE_DIR = 'client'
 export const CLIENT_DIR = path.resolve(CLIENT_RELATIVE_DIR)
-export const CLIENT_BIN_DIR = 'RADS/solutions/lol_game_client_sln/releases/0.0.1.68/deploy'
+//  export const CLIENT_BIN_DIR = 'RADS/solutions/lol_game_client_sln/releases/0.0.1.68/deploy'
+    export const CLIENT_BIN_DIR = ''
 export const CLIENT_EXE = 'League of Legends.exe'
 
 const WINEPREFIX_RELATIVE_DIR = 'prefix'
