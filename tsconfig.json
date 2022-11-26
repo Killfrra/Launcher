@@ -2,6 +2,9 @@
     "$schema": "https://json.schemastore.org/tsconfig",
     "display": "Node 16",
     "compilerOptions": {
+        "allowJs": true,
+        "checkJs": true,
+        //"maxNodeModuleJsDepth": 10,
         "experimentalDecorators": true,
         "lib": [ "es2021" ],
         "module": "commonjs",

@@ -16,33 +16,48 @@ function sign(message: Buffer, publicKey: Buffer, secretKey: Buffer) {
     return signature
 }
 
-type u = undefined
-type AddMutableOptions = WebTorrent.TorrentOptions
-type AddMutableCallback = (torrent: WebTorrent.Torrent) => any
-type PublishOptions = { sequence: number }
 type Callback<Data = any> = (err?: any, res?: Data) => any
 
-class MutableWebTorrent extends WebTorrent {
-    constructor(options?: WebTorrent.Options) {
-        let dht = options?.dht as (u | { verify: Function })
-        console.assert(dht?.verify === verify)
+type DHTGetCBData = {
+    v: any
+    id: string
+    k: string
+    sig: string
+    seq: number
+}
+
+type DHTPutOpts = {
+    k: Buffer | string
+    v: any
+    seq: number
+    cas?: number
+    salt?: Buffer
+} & ({
+    sign: (buf: Buffer) => Buffer
+} | {
+    sig: string
+})
+
+type DHT = {
+    get(key: string, opts: any, cb: Callback<DHTGetCBData>): void
+    get(key: string, cb: Callback<DHTGetCBData>): void
+    put(opts: DHTPutOpts, cb: Callback): void
+}
+
+export default class MutableWebTorrent extends WebTorrent {
+    
+    //@ts-ignore
+    dht: DHT
+
+    constructor(options?: WebTorrent.Options & { dht?: { verify?: Function } }) {
+        options = options || {}
+        options.dht = options.dht || {}
+        options.dht.verify = verify
         super(options)
     }
 
-    addMutable(torrent: any, opts?: AddMutableOptions | AddMutableCallback, callback: AddMutableCallback = noop): void {
-        let options: u | AddMutableOptions
-        if (typeof opts === 'function') {
-            callback = opts
-        } else {
-            options = opts
-        }
-
-        if (typeof torrent !== 'string') {
-            super.add(torrent, options, callback)
-            return
-        }
-        let magnetURI = torrent
-
+    addMutable(magnetURI: string, options?: WebTorrent.TorrentOptions, callback: (torrent: WebTorrent.Torrent) => any = noop): void {
+        
         const parsed = new URL(magnetURI)
         const xs = parsed.searchParams.get('xs')
         const isMutableLink = xs && xs.startsWith(BTPK_PREFIX)
@@ -79,7 +94,7 @@ class MutableWebTorrent extends WebTorrent {
                 }
                 let infoHash = res?.v?.ih
                 let sequence = res?.seq
-                if (typeof infoHash === 'string' && typeof sequence === 'number') {
+                if (infoHash !== undefined && sequence !== undefined) {
                     return callback(null, { infoHash, sequence })
                 } else {
                     //TODO: better error message
@@ -89,13 +104,8 @@ class MutableWebTorrent extends WebTorrent {
         })
     }
 
-    publish(publicKeyString: string, secretKeyString: string, infoHashString: string, opts?: Callback | PublishOptions, callback: Callback = noop) {
-        let options: PublishOptions = { sequence: 1 }
-        if (typeof opts === 'function') {
-            callback = opts
-        } else if(opts !== undefined){
-            options = opts
-        }
+    publish(publicKeyString: string, secretKeyString: string, infoHashString: string, options = { sequence: 1 }, callback: Callback = noop) {
+        
         const buffPubKey = Buffer.from(publicKeyString, 'hex')
         const buffSecKey = Buffer.from(secretKeyString, 'hex')
 
@@ -104,14 +114,13 @@ class MutableWebTorrent extends WebTorrent {
 
             const opts = {
                 k: buffPubKey,
-                // seq: 0,
+                seq: options.sequence,
                 v: {
                     ih: Buffer.from(infoHashString, 'hex')
                 },
                 sign: (buf: Buffer) => {
                     return sign(buf, buffPubKey, buffSecKey)
                 },
-                seq: options.sequence
             }
 
             dht.get(targetID, (err, res) => {
@@ -143,12 +152,11 @@ class MutableWebTorrent extends WebTorrent {
             const dht = this.dht
 
             dht.get(targetID, (err, res) => {
-                if (err) {
+                if (err || !res) {
                     callback(err)
-                    callback = noop
+                    callback = noop //TODO: Investigate
                     return
                 }
-
                 dht.put(res, (err) => {
                     callback(err)
                 })
@@ -156,7 +164,7 @@ class MutableWebTorrent extends WebTorrent {
         })
     }
 
-    createKeypair(seed) {
+    createKeypair(seed: any) {
         const publicKey = Buffer.alloc(sodium.crypto_sign_PUBLICKEYBYTES)
         const secretKey = Buffer.alloc(sodium.crypto_sign_SECRETKEYBYTES)
         if (seed) {
@@ -170,7 +178,5 @@ class MutableWebTorrent extends WebTorrent {
         }
     }
 }
-
-module.exports = MutableWebTorrent
 
 function noop() { }
