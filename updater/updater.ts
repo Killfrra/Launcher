@@ -146,7 +146,7 @@ async function main()
                 signature = dhtSignatureString
                 await saveLastVersion()
                 
-                await download()
+                await downloadDifferentVersion()
             }
         }
         else
@@ -167,11 +167,7 @@ async function main()
     if(mwt.torrents.length === 0)
     {
         //TODO: Verify only size and modification date
-        mwt.add(infoHash, {
-            path: ARCHIVE_DIR,
-            skipVerify: true,
-            strategy: 'rarest'
-        })
+        await download()
     }
     //TODO: reannonce and recheck
 }
@@ -180,10 +176,10 @@ async function republish()
 {
     console.log('Publishing...')
     await mwt_publish(publicKey, infoHash, sequence, { signature })
-    console.log('Published'
+    console.log('Published')
 }
 
-async function download()
+async function downloadDifferentVersion()
 {
     console.log('Downloading...')
 
@@ -202,90 +198,104 @@ async function download()
     }
     if(hasArchive)
     {
-        let torrent = mwt.add(infoHash, {
-            path: ARCHIVE_DIR,
-            skipVerify: true,
-            strategy: 'rarest'
-        })
-        let torrent_rescanFiles = def(promisify((torrent as any).rescanFiles)).bind(torrent)
-        
-        console.log('Awaiting metadata...')
-        await new Promise((res, rej) => {
-            torrent.once('metadata', res)
-            torrent.once('error', rej)
-        })
-        console.log('Metadata received')
-
-        let zsyncFile = torrent.files.find(f => f.name === ARCHIVE_ZSYNC)
-        let gzFileIndex = torrent.files.findIndex(f => f.name === ARCHIVE_GZ)
-        let gzFile = torrent.files[gzFileIndex]
-        if(zsyncFile && gzFile)
-        {
-            torrent.deselect(0, torrent.pieces.length - 1, 0)
-            zsyncFile.select()
-
-            console.log('Scanning files...')
-            /*await*/ torrent_rescanFiles()
-            console.log('Files scanned')
-
-            console.log(`Downloading ${ARCHIVE_ZSYNC}...`)
-            await new Promise((res, rej) => {
-                zsyncFile!.once('done', res)
-                torrent.once('error', rej)
-            })
-            console.log(`${ARCHIVE_ZSYNC} downloaded`)
-
-            let server = torrent.createServer()
-                server.listen(ZSYNC_PORT)
-            let zsync = spawn(ZSYNC_EXE, [
-                '-u', `http://127.0.0.1:${ZSYNC_PORT}/${gzFileIndex}`,
-                '-o', ARCHIVE_GZ,
-                ARCHIVE_ZSYNC
-            ], {
-                cwd: path.resolve(ARCHIVE_DIR),
-                stdio: 'inherit'
-            })
-
-            console.log(`Waiting for ${ZSYNC_EXE} to exit...`)
-            await new Promise((res, rej) => {
-                zsync.on('exit', res)
-                zsync.on('error', rej)
-                torrent.once('error', rej)
-            })
-            console.log(`${ZSYNC_EXE} exited`)
-
-            server.close()
-            torrent.select(0, torrent.pieces.length - 1, 0)
-
-            console.log('Scanning files...')
-            await torrent_rescanFiles()
-            console.log('Files scanned')
-
-            console.log(`${ARCHIVE_GZ} progress:`, gzFile.progress)
-        }
-        else
-        {
-            let file = (!zsyncFile && !gzFile) ?
-                `${ARCHIVE_ZSYNC} and ${ARCHIVE_GZ}` :
-                (!zsyncFile) ? ARCHIVE_ZSYNC :
-                ARCHIVE_GZ
-            console.log(`Could not find ${file} in torrent`)
-        }
+        await downloadWithZSync()
     }
     else
     {
-        let torrent = mwt.add(infoHash, {
-            path: ARCHIVE_DIR,
-            skipVerify: false,
-            strategy: 'rarest'
-        })
-        console.log(`Downloading the entire torrent...`)
+        await download()
+    }
+    console.log('Downloaded')
+}
+
+async function download()
+{
+    let torrent = mwt.add(infoHash, {
+        path: ARCHIVE_DIR,
+        skipVerify: false,
+        strategy: 'rarest'
+    })
+    console.log(`Downloading the entire torrent...`)
+    
+    //TODO: await metadata + check gzFile existence
+    //TODO: throw errors in download*
+    //TODO: catch errors and destroy WT client
+    
+    await new Promise((res, rej) => {
+        torrent.once('done', res)
+        torrent.once('error', rej)
+    })
+    console.log(`The entire torrent downloaded`)    
+}
+
+async function downloadWithZSync()
+{
+    let torrent = mwt.add(infoHash, {
+        path: ARCHIVE_DIR,
+        skipVerify: true,
+        strategy: 'rarest'
+    })
+    let torrent_rescanFiles = def(promisify((torrent as any).rescanFiles)).bind(torrent)
+    
+    console.log('Awaiting metadata...')
+    await new Promise((res, rej) => {
+        torrent.once('metadata', res)
+        torrent.once('error', rej)
+    })
+    console.log('Metadata received')
+
+    let zsyncFile = torrent.files.find(f => f.name === ARCHIVE_ZSYNC)
+    let gzFileIndex = torrent.files.findIndex(f => f.name === ARCHIVE_GZ)
+    let gzFile = torrent.files[gzFileIndex]
+    if(zsyncFile && gzFile)
+    {
+        torrent.deselect(0, torrent.pieces.length - 1, 0)
+        zsyncFile.select()
+
+        console.log('Scanning files...')
+        /*await*/ torrent_rescanFiles()
+        console.log('Files scanned')
+
+        console.log(`Downloading ${ARCHIVE_ZSYNC}...`)
         await new Promise((res, rej) => {
-            torrent.once('done', res)
+            zsyncFile!.once('done', res)
             torrent.once('error', rej)
         })
-        console.log(`The entire torrent downloaded`)
-    }
+        console.log(`${ARCHIVE_ZSYNC} downloaded`)
 
-    console.log('Downloaded')
+        let server = torrent.createServer()
+            server.listen(ZSYNC_PORT)
+        let zsync = spawn(ZSYNC_EXE, [
+            '-u', `http://127.0.0.1:${ZSYNC_PORT}/${gzFileIndex}`,
+            '-o', ARCHIVE_GZ,
+            ARCHIVE_ZSYNC
+        ], {
+            cwd: path.resolve(ARCHIVE_DIR),
+            stdio: 'inherit'
+        })
+
+        console.log(`Waiting for ${ZSYNC_EXE} to exit...`)
+        await new Promise((res, rej) => {
+            zsync.on('exit', res)
+            zsync.on('error', rej)
+            torrent.once('error', rej)
+        })
+        console.log(`${ZSYNC_EXE} exited`)
+
+        server.close()
+        torrent.select(0, torrent.pieces.length - 1, 0)
+
+        console.log('Scanning files...')
+        await torrent_rescanFiles()
+        console.log('Files scanned')
+
+        console.log(`${ARCHIVE_GZ} progress:`, gzFile.progress)
+    }
+    else
+    {
+        let file = (!zsyncFile && !gzFile) ?
+            `${ARCHIVE_ZSYNC} and ${ARCHIVE_GZ}` :
+            (!zsyncFile) ? ARCHIVE_ZSYNC :
+            ARCHIVE_GZ
+        console.log(`Could not find ${file} in torrent`)
+    }    
 }
