@@ -214,6 +214,8 @@ async function download()
         skipVerify: false,
         strategy: 'rarest'
     })
+    
+    //TODO: fix hang by saving and loading torrent file
     console.log(`Downloading the entire torrent...`)
     
     //TODO: await metadata + check gzFile existence
