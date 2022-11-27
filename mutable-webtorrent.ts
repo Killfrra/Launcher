@@ -1,3 +1,5 @@
+// Based on https://github.com/RangerMauve/mutable-webtorrent
+
 import WebTorrent from 'webtorrent'
 //@ts-ignore
 import sodium from 'sodium-universal'
@@ -19,24 +21,25 @@ function sign(message: Buffer, publicKey: Buffer, secretKey: Buffer) {
 type Callback<Data = any> = (err?: any, res?: Data) => any
 
 type DHTGetCBData = {
+    k: Buffer
     v: any
-    id: string
-    k: string
-    sig: string
+    id: Buffer
+    sig: Buffer
     seq: number
 }
 
 type DHTPutOpts = {
-    k: Buffer | string
+    k: Buffer
     v: any
     seq: number
     cas?: number
     salt?: Buffer
-} & ({
+} & DHTPutOptsSignOrSig
+type DHTPutOptsSignOrSig = {
     sign: (buf: Buffer) => Buffer
 } | {
-    sig: string
-})
+    sig: Buffer
+}
 
 type DHT = {
     get(key: string, opts: any, cb: Callback<DHTGetCBData>): void
@@ -104,24 +107,57 @@ export default class MutableWebTorrent extends WebTorrent {
         })
     }
 
-    publish(publicKeyString: string, secretKeyString: string, infoHashString: string, options = { sequence: 1 }, callback: Callback = noop) {
-        
-        const buffPubKey = Buffer.from(publicKeyString, 'hex')
-        const buffSecKey = Buffer.from(secretKeyString, 'hex')
-
-        sha1(buffPubKey, (targetID) => {
-            
-            const opts = {
-                k: buffPubKey,
-                seq: options.sequence,
-                v: {
-                    ih: Buffer.from(infoHashString, 'hex')
-                },
+    publish(publicKeyString: string, infoHashString: string, sequence: number, options: ({ secretKey: string } | { signature: string }), callback: Callback<{
+        publicKey: string
+        signature: string
+        infoHash: string
+        sequence: number
+    }> = noop)
+    {
+        const publicKeyBuffer = Buffer.from(publicKeyString, 'hex')
+        let signatureBuffer: Buffer
+        let signatureString: string
+        let sigopts: DHTPutOptsSignOrSig
+        if('secretKey' in options && options.secretKey)
+        {
+            const secretKeyBuffer = Buffer.from(options.secretKey, 'hex')
+            sigopts = {
                 sign: (buf: Buffer) => {
-                    return sign(buf, buffPubKey, buffSecKey)
-                },
+                    signatureBuffer = sign(buf, publicKeyBuffer, secretKeyBuffer)
+                    signatureString = signatureBuffer.toString('hex')
+                    return signatureBuffer
+                }
             }
+        }
+        else if('signature' in options && options.signature)
+        {
+            signatureString = options.signature
+            signatureBuffer = Buffer.from(signatureString, 'hex')
+            sigopts = {
+                sig: signatureBuffer
+            }
+        }
+        const opts: DHTPutOpts = Object.assign({
+            k: publicKeyBuffer,
+            seq: sequence,
+            v: {
+                ih: Buffer.from(infoHashString, 'hex')
+            },
+        }, sigopts!)
 
+        this.dht.put(opts, (putErr, hash) => {
+            if (putErr) {
+                return callback(putErr)
+            }
+            callback(null, {
+                publicKey: publicKeyString,
+                signature: signatureString,
+                infoHash: infoHashString,
+                sequence,
+            })
+        })
+        /*
+        sha1(buffPubKey, (targetID) => {
             this.dht.get(targetID, (err, res) => {
                 if (err) {
                     return callback(err)
@@ -130,19 +166,10 @@ export default class MutableWebTorrent extends WebTorrent {
                 if(res && res.seq) {
                     sequence = opts.seq = res.seq + 1
                 }
-                this.dht.put(opts, (putErr, hash) => {
-                    if (putErr) {
-                        return callback(putErr)
-                    }
-                    const magnetURI = `magnet:?xs=${BTPK_PREFIX}${publicKeyString}`
-                    callback(null, {
-                        magnetURI,
-                        infohash: infoHashString,
-                        sequence
-                    })
-                })
+                // put
             })
         })
+        */
     }
 
     republish(publicKeyString: string, callback: Callback = noop) {
