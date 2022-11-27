@@ -25,20 +25,25 @@ type LastVersionFile = {
 let action = process.argv[2]
 
 //TODO: defaults
-let lastVersion: LastVersionFile = {
-    sequence: 0,
-    infoHash: '',
-    signature: '',
+let sequence = 0
+let infoHash = ''
+let signature = ''
+let publicKey: string
+
+function hasVersion()
+{
+    return sequence && infoHash && signature
 }
 
 let mwt = new MutableWebTorrent()
-let mwt_publish = promisify(mwt.publish).bind(mwt)
-let mwt_resolve = promisify(mwt.resolve).bind(mwt)
+let mwt_publish = def(promisify(mwt.publish)).bind(mwt)
+let mwt_resolve = def(promisify(mwt.resolve)).bind(mwt)
+let mwt_destroy = def(promisify(mwt.destroy)).bind(mwt)
 
-async function saveLastVersion(sequence: number, infoHash: string, signature: string)
+async function saveLastVersion()
 {
     console.log(`Saving ${LASTVER_JSON}...`)
-    lastVersion = { sequence, infoHash, signature }
+    let lastVersion = { sequence, infoHash, signature }
     await fs.writeFile(LASTVER_JSON, JSON.stringify(lastVersion), 'utf8')
     console.log(`${LASTVER_JSON} saved`)
 }
@@ -46,8 +51,22 @@ async function saveLastVersion(sequence: number, infoHash: string, signature: st
 async function loadLastVersion()
 {
     console.log(`Loading ${LASTVER_JSON}...`)
-    lastVersion = JSON.parse(await fs.readFile(LASTVER_JSON, 'utf8'))
+    let lastVersion = JSON.parse(await fs.readFile(LASTVER_JSON, 'utf8'))
+    sequence = lastVersion.sequence
+    infoHash = lastVersion.infoHash
+    signature = lastVersion.signature
     console.log(`${LASTVER_JSON} loaded:`, lastVersion)
+}
+
+type NonUndefined<T> = T extends undefined ? never : T;
+type ReturnsNonUndefinedPromise<FUNC> =
+    FUNC extends (...args: any) => Promise<infer RET> ?
+    (...args: Parameters<FUNC>) => Promise<NonUndefined<RET>>
+    : FUNC
+
+function def<FUNC>(f: FUNC)
+{
+    return f as ReturnsNonUndefinedPromise<FUNC>
 }
 
 main()
@@ -62,16 +81,12 @@ async function main()
         console.log(e)
     }
 
-    let sequence = lastVersion.sequence
-    let infoHash = lastVersion.infoHash
-    let signature = lastVersion.signature
-
     console.log(`Loading ${PUBKEY_TXT}...`)
-    let publicKey = await fs.readFile(PUBKEY_TXT, 'utf8')
+    publicKey = await fs.readFile(PUBKEY_TXT, 'utf8')
     console.log(`${PUBKEY_TXT} loaded`)
     if(action === 'publish')
     {
-        let parseTorrent_remote = promisify(parseTorrent.remote).bind(parseTorrent)
+        let parseTorrent_remote = def(promisify(parseTorrent.remote)).bind(parseTorrent)
         console.log(`Parsing ${ARG3_TORRENT}...`)
         let torrent = await parseTorrent_remote(ARG3_TORRENT)
         if(torrent)
@@ -96,46 +111,82 @@ async function main()
 
         console.log('Publishing...')
         signature = (await mwt_publish(publicKey, infoHash, sequence, { secretKey }))!.signature
-        console.log('Published')
+        console.log('Published:', signature)
 
-        await saveLastVersion(sequence, infoHash, signature)
+        await saveLastVersion()
     }
     else
     {
         console.log('Resolving...')
-        let {
-            infoHash: dhtInfoHash,
-            sequence: dhtSequence,
-            signature: dhtSignature
-        } = (await mwt_resolve(publicKey))!
-        let dhtInfoHashString = dhtInfoHash.toString('hex')
-        let dhtSignatureString = dhtSignature.toString('hex')
-        console.log('Resolved:', dhtSequence, dhtInfoHashString, dhtSignatureString)
-
-        if(sequence > dhtSequence)
+        let resolved
+        try
         {
-            console.log('Publishing...')
-            await mwt_publish(publicKey, infoHash, sequence, { signature })
-            console.log('Published')
+            resolved = await mwt_resolve(publicKey)
         }
-        else if(sequence < dhtSequence)
+        catch(e)
         {
-            sequence = dhtSequence
-            infoHash = dhtInfoHashString
-            signature = dhtSignatureString
-            await saveLastVersion(sequence, infoHash, signature)
-            
-            console.log('Downloading...')
-            await download(lastVersion)
-            console.log('Downloaded')
+            console.log(e)
+        }
+
+        if(resolved)
+        {
+            let dhtSequence = resolved.sequence
+            let dhtInfoHashString = resolved.infoHash.toString('hex')
+            let dhtSignatureString = resolved.signature.toString('hex')
+            console.log('Resolved:', dhtSequence, dhtInfoHashString, dhtSignatureString)
+
+            if(hasVersion() && sequence > dhtSequence)
+            {
+                await republish()
+            }
+            else if(!hasVersion() || sequence < dhtSequence)
+            {
+                sequence = dhtSequence
+                infoHash = dhtInfoHashString
+                signature = dhtSignatureString
+                await saveLastVersion()
+                
+                await download()
+            }
+        }
+        else
+        {
+            console.log('Unable to resolve')
+            if(hasVersion())
+            {
+                await republish()
+            }
+            else
+            {
+                console.log('Nothing to republish')
+                await mwt_destroy()
+                return
+            }
         }
     }
-    //TODO: seed
-    //TODO: reannonce
+    if(mwt.torrents.length === 0)
+    {
+        //TODO: Verify only size and modification date
+        mwt.add(infoHash, {
+            path: ARCHIVE_DIR,
+            skipVerify: true,
+            strategy: 'rarest'
+        })
+    }
+    //TODO: reannonce and recheck
 }
 
-async function download({ sequence, infoHash, signature }: LastVersionFile)
+async function republish()
 {
+    console.log('Publishing...')
+    await mwt_publish(publicKey, infoHash, sequence, { signature })
+    console.log('Published'
+}
+
+async function download()
+{
+    console.log('Downloading...')
+
     let hasArchive = false
     try
     {
@@ -156,7 +207,7 @@ async function download({ sequence, infoHash, signature }: LastVersionFile)
             skipVerify: true,
             strategy: 'rarest'
         })
-        let torrent_rescanFiles = promisify((torrent as any).rescanFiles).bind(torrent)
+        let torrent_rescanFiles = def(promisify((torrent as any).rescanFiles)).bind(torrent)
         
         console.log('Awaiting metadata...')
         await new Promise((res, rej) => {
@@ -235,4 +286,6 @@ async function download({ sequence, infoHash, signature }: LastVersionFile)
         })
         console.log(`The entire torrent downloaded`)
     }
+
+    console.log('Downloaded')
 }

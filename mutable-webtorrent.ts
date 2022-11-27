@@ -88,12 +88,16 @@ export default class MutableWebTorrent extends WebTorrent {
         })
     }
 
-    resolve(publicKeyString: string, callback: Callback<{ infoHash: Buffer, sequence: number, signature: Buffer }>) {
+    resolve(publicKeyString: string, callback: Callback<null | { infoHash: Buffer, sequence: number, signature: Buffer }>) {
         let publicKey = Buffer.from(publicKeyString, 'hex')
         sha1(publicKey, (targetID) => {
             this.dht.get(targetID, (err, res) => {
                 if (err) {
                     return callback(err)
+                }
+                if (res === null) {
+                    // No such entry was found in DHT
+                    return callback(null, null)
                 }
                 let infoHash = res?.v?.ih
                 let sequence = res?.seq
@@ -101,7 +105,6 @@ export default class MutableWebTorrent extends WebTorrent {
                 if (infoHash !== undefined && sequence !== undefined && signature !== undefined) {
                     return callback(null, { infoHash, sequence, signature })
                 } else {
-                    //TODO: better error message
                     return callback(new Error('Unable to parse response'))
                 }
             })
