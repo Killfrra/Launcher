@@ -4,10 +4,11 @@ type u = undefined
 
 class File
 {
-    size: number
     mtime: number
-    hash?: string
     source?: string
+
+    size: number
+    hash?: string    
     constructor(size: number, mtime: number, hash?: string)
     {
         this.size = size
@@ -19,6 +20,8 @@ class File
 class Dir
 {
     mtime: number
+    source?: string
+
     entries: Entries = {}
     constructor(mtime: number)
     {
@@ -85,4 +88,36 @@ async function rescan(basepath: string = '.', base?: Entry)
         }
         return new File(stats.size, stats.mtimeMs)
     }
+}
+
+function add(a?: Entry, b?: Entry): Entry
+{
+    if(a instanceof Dir && b instanceof Dir)
+    {
+        let dir = new Dir(b.mtime)
+        for(let entry_name of new Set(Object.keys(a.entries).concat(Object.keys(b.entries))))
+        {
+            dir.entries[entry_name] = add(a.entries[entry_name], b.entries[entry_name])
+        }
+        return dir
+    }
+    else
+    {
+        let b_or_a = b || a
+        if(b_or_a)
+        {
+            return b_or_a
+        }
+        else
+        {
+            throw new Error()
+        }
+    }
+}
+
+function diff(a: Entry, b: Entry)
+{
+    let report = new DiffReport()
+    
+    return report
 }
