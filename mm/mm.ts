@@ -2,31 +2,6 @@ import fs from 'fs/promises'
 
 type u = undefined
 
-enum EntryStatus {
-    Changed, ToAdd, ToRemove, ToReplace, Unchanged
-}
-class FileStatus
-{
-    status?: EntryStatus
-    constructor(status?: EntryStatus)
-    {
-        this.status = status
-    }
-}
-class DirStatus
-{
-    status?: EntryStatus
-    entries: Statuses = {}
-    constructor(status?: EntryStatus)
-    {
-        this.status = status
-    }
-}
-type Status = FileStatus | DirStatus
-type Statuses = {
-    [name: string]: u|Status
-}
-
 class File
 {
     mtime: number
@@ -40,8 +15,11 @@ class File
         this.mtime = mtime
         this.hash = hash
     }
+    equals(b: Entry)
+    {
+        return this === b || (b instanceof File && ((this.size === b.size && this.mtime === b.mtime) || true))
+    }
 }
-
 class Dir
 {
     mtime: number
@@ -52,22 +30,25 @@ class Dir
     {
         this.mtime = mtime
     }
+    equals(b: Entry)
+    {
+        if(this === b)
+        {
+            return true
+        }
+        else if(b instanceof Dir)
+        {
+            return false
+        }
+        else
+        {
+            return false
+        }
+    }
 }
-
 type Entry = File | Dir
 type Entries = {
     [name: string]: u|Entry
-}
-type Files = {
-    [name: string]: u|File
-}
-
-class DiffReport
-{
-    added: Entries = {}
-    removed: Entries = {}
-    //replaced: Entries = {}
-    //unchanged: Entries = {}
 }
 
 async function rescan(basepath: string = '.', base?: Entry)
@@ -140,28 +121,103 @@ function add(a?: Entry, b?: Entry): Entry
     }
 }
 
-function diff(path = '.', a?: Entry, b?: Entry)
-{
-    let report = new DiffReport()
+type SimpleDir = { [name: string]: SimpleEntry }
+type SimpleEntry = boolean | SimpleDir
 
-    if(a instanceof Dir && b instanceof Dir)
+function unite(ret: SimpleDir): SimpleEntry
+{
+    if(Object.values(ret).every(e => e === true))
     {
-        let temp: { [name: string]: DiffReport } = {}
-        for(let [entry_name, entry] of Object.entries(a))
-        {
-            temp[entry_name] = 
-        }
+        return true
+    }
+    else if(Object.values(ret).every(e => e === false))
+    {
+        return false
     }
     else
     {
-        if(a && b)
-        {
-            report.removed[path] = a
-        }
-        if(b)
-        {
-            report.added[path] = b
-        }
+        return ret
     }
-    return report
+}
+
+function diff_unchanged(a?: Entry, b?: Entry): SimpleEntry
+{
+    if(a instanceof Dir && b instanceof Dir)
+    {
+        let ret: SimpleDir = {}
+        for(let entry_name of Object.keys(a.entries).concat(Object.keys(b.entries)))
+        {
+            ret[entry_name] = diff_unchanged(a.entries[entry_name], b.entries[entry_name])
+        }
+        return unite(ret)
+    }
+    else if(a instanceof File && b instanceof File)
+    {
+        return a.size === b.size && a.mtime === b.mtime
+    }
+    else
+    {
+        return !!(a && b)
+    }
+}
+
+function diff_removed(a?: Entry, b?: Entry, unchanged?: SimpleEntry): SimpleEntry
+{
+    if(unchanged === true)
+    {
+        return false
+    }
+    else if(a instanceof Dir && b instanceof Dir)
+    {
+        let ret: SimpleDir = {}
+        for(let entry_name of Object.keys(a.entries))
+        {
+            let u = (unchanged as SimpleDir)[entry_name]
+            ret[entry_name] = diff_removed(a.entries[entry_name], b.entries[entry_name], u)
+        }
+        return unite(ret)
+    }
+    else
+    {
+        return !!b // overwriting
+    }
+}
+
+function diff_added(a?: Entry, b?: Entry, unchanged?: SimpleEntry): SimpleEntry
+{
+    if(unchanged === true)
+    {
+        return false
+    }
+    else if(a instanceof Dir && b instanceof Dir)
+    {
+        let ret: SimpleDir = {}
+        for(let entry_name of Object.keys(b.entries))
+        {
+            let u = (unchanged as SimpleDir)[entry_name]
+            ret[entry_name] = diff_removed(a.entries[entry_name], b.entries[entry_name], u)
+        }
+        return unite(ret)
+    }
+    else
+    {
+        return true
+    }
+}
+
+async function check_and_repair()
+{
+    let cache_old = JSON.parse(await fs.readFile('cache_tree.json', 'utf8'))
+    let cache_new = await rescan('./cache', cache_old)
+    let cache_unc = diff_unchanged(cache_old, cache_new)
+    if(cache_unc === true)
+    {
+        console.log('the cache has not changed, everything is fine')
+    }
+}
+
+main()
+async function main()
+{
+    
 }
