@@ -206,6 +206,8 @@ function diff_added(a?: Entry, b?: Entry, unchanged?: SimpleEntry): SimpleEntry
 
 async function check_and_repair()
 {
+    //TODO: try-catches
+    //TODO: reviver
     let cache_old = JSON.parse(await fs.readFile(CACHE_UNPACKED_TREE, 'utf8'))
     let cache_new = await rescan(CACHE_UNPACKED_DIR, cache_old)
     let cache_unc = diff_unchanged(cache_old, cache_new)
@@ -253,6 +255,7 @@ async function create_new_modpack()
     let managed_old = undefined
     if(managed_json)
     {
+        //TODO: reviver
         managed_old = JSON.parse(managed_json)
     }
 
@@ -320,8 +323,11 @@ async function create_new_modpack()
     let torrentBuffer = await createTorrent(CACHE_NEW_DIR)
     let torrent = parseTorrent(torrentBuffer)
     let infoHash = torrent.infoHash!
+
+    await fs.mkdir(CACHE_TORRENTS_DIR, { recursive: true })
     await fs.writeFile(`${CACHE_TORRENTS_DIR}/${infoHash}.torrent`, torrentBuffer/*, 'binary'*/)
     
+    await fs.mkdir(CACHE_PACKED_DIR, { recursive: true })
     await fs.rename(CACHE_NEW_DIR, `${CACHE_PACKED_DIR}/${infoHash}`)
 
     foreach_file(managed_new, [], (entry, path) =>
