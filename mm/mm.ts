@@ -1,4 +1,22 @@
 import fs from 'fs/promises'
+import { promisify } from 'util'
+//@ts-ignore
+import tgz from 'targz'
+const tgz_compress = promisify(tgz.compress).bind(tgz)
+const tgz_decompress = promisify(tgz.decompress).bind(tgz)
+import createTorrentWithCallback from 'create-torrent'
+const createTorrent = promisify(createTorrentWithCallback) as (input: string) => Promise<Buffer>
+import parseTorrent from 'parse-torrent'
+
+const MODS_LIST = './mods.json'
+const MANAGED_DIR = './managed'
+const MANAGED_TREE = './managed_tree.json'
+const CACHE_PACKED_DIR = './cache/packed'
+const CACHE_PACKED_TREE = './cache_packed_tree.json'
+const CACHE_UNPACKED_DIR = './cache/unpacked'
+const CACHE_UNPACKED_TREE = './cache_unpacked_tree.json'
+const CACHE_TORRENTS_DIR = './cache/torrents'
+const CACHE_TORRENTS_TREE = './cache_torrents_tree.json'
 
 type u = undefined
 
@@ -15,10 +33,6 @@ class File
         this.mtime = mtime
         this.hash = hash
     }
-    equals(b: Entry)
-    {
-        return this === b || (b instanceof File && ((this.size === b.size && this.mtime === b.mtime) || true))
-    }
 }
 class Dir
 {
@@ -29,21 +43,6 @@ class Dir
     constructor(mtime: number)
     {
         this.mtime = mtime
-    }
-    equals(b: Entry)
-    {
-        if(this === b)
-        {
-            return true
-        }
-        else if(b instanceof Dir)
-        {
-            return false
-        }
-        else
-        {
-            return false
-        }
     }
 }
 type Entry = File | Dir
@@ -207,17 +206,121 @@ function diff_added(a?: Entry, b?: Entry, unchanged?: SimpleEntry): SimpleEntry
 
 async function check_and_repair()
 {
-    let cache_old = JSON.parse(await fs.readFile('cache_tree.json', 'utf8'))
-    let cache_new = await rescan('./cache', cache_old)
+    let cache_old = JSON.parse(await fs.readFile(CACHE_UNPACKED_TREE, 'utf8'))
+    let cache_new = await rescan(CACHE_UNPACKED_DIR, cache_old)
     let cache_unc = diff_unchanged(cache_old, cache_new)
     if(cache_unc === true)
     {
-        console.log('the cache has not changed, everything is fine')
+        console.log('The cache has not changed, everything is fine')
     }
+}
+
+async function foreach_file(entry: Entry, path: string[] = [], cb: (entry: Entry, path: string[]) => any)
+{
+    if(entry instanceof Dir)
+    {
+        for(let [subentry_name, subentry] of Object.entries(entry.entries))
+        {
+            path.push(subentry_name)
+            await foreach_file(subentry!, path, cb)
+            path.pop()
+        }
+    }
+    else
+    {
+        cb(entry, path)
+    }
+}
+
+async function create_new_modpack()
+{
+    const CACHE_NEW_DIR = `${CACHE_PACKED_DIR}/new`
+    const CACHE_NEW_ARCHIVE = `${CACHE_NEW_DIR}/archive.tar.gz`
+    const CACHE_NEW_MODS = `${CACHE_NEW_DIR}/mods.json`
+
+    let managed_json
+    try
+    {
+        managed_json = await fs.readFile(MANAGED_TREE, 'utf8')
+    }
+    catch(e: any)
+    {
+        if(e.code !== 'ENOENT')
+        {
+            throw e
+        }
+    }
+    let managed_old = managed_json && JSON.parse(managed_json) || undefined
+    let managed_new = await rescan(MANAGED_DIR, managed_old)
+
+    let entries_to_pack: string[] = []
+    foreach_file(managed_new!, [], (entry, path) =>
+    {
+        if(entry.source === undefined)
+        {
+            entries_to_pack.push(path.join('/'))
+        }
+    })
+
+    if(entries_to_pack.length === 0)
+    {
+        console.log('The files have not changed, there is nothing to assemble the pack from')
+        return
+    }
+
+    await fs.mkdir(CACHE_NEW_DIR, { recursive: true })
+
+    let mods_json = await fs.readFile(MODS_LIST, 'utf8')
+    let mods: string[] = JSON.parse(mods_json)
+    await fs.writeFile(CACHE_NEW_MODS, mods_json, 'utf8')
+
+    await tgz_compress({
+        src: MANAGED_DIR,
+        dest: CACHE_NEW_ARCHIVE,
+        tar: {
+            entries: entries_to_pack
+        }
+    })
+
+    let torrentBuffer = await createTorrent(CACHE_NEW_DIR)
+    let torrent = parseTorrent(torrentBuffer)
+    let infoHash = torrent.infoHash!
+    await fs.writeFile(`${CACHE_TORRENTS_DIR}/${infoHash}.torrent`, torrentBuffer/*, 'binary'*/)
+    
+    await fs.rename(CACHE_NEW_DIR, `${CACHE_PACKED_DIR}/${infoHash}`)
+
+    foreach_file(managed_new!, [], (entry, path) =>
+    {
+        if(entry.source === undefined)
+        {
+            entry.source = infoHash
+        }
+    })
+
+    mods.push(infoHash)
+    mods_json = JSON.stringify(mods, null, 4)
+    await fs.writeFile(MODS_LIST, mods_json, 'utf8')
+
+    await fs.writeFile(MANAGED_TREE, JSON.stringify(managed_new, null, 4), 'utf8')
+    
+
+    // filter FILES with undefined source
+    // add currently installed mods to dependencies
+    // create new folder in cache/packed
+    // add torrent to cache/torrents
 }
 
 main()
 async function main()
 {
-    
+    let argv2 = process.argv[2]
+    let argv3 = process.argv[3]
+    if(argv2 === 'new' && (argv3 === 'pack' || argv3 === 'modpack'))
+    {
+        await create_new_modpack()
+    }
+    else if(argv2 === 'check' || argv2 === 'repair')
+    {
+        await check_and_repair()
+    }
 }
