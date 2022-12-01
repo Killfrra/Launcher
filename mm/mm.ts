@@ -238,7 +238,7 @@ async function create_new_modpack()
     const CACHE_NEW_ARCHIVE = `${CACHE_NEW_DIR}/archive.tar.gz`
     const CACHE_NEW_MODS = `${CACHE_NEW_DIR}/mods.json`
 
-    let managed_json
+    let managed_json: u|string
     try
     {
         managed_json = await fs.readFile(MANAGED_TREE, 'utf8')
@@ -250,18 +250,38 @@ async function create_new_modpack()
             throw e
         }
     }
-    let managed_old = managed_json && JSON.parse(managed_json) || undefined
-    let managed_new = await rescan(MANAGED_DIR, managed_old)
+    let managed_old = undefined
+    if(managed_json)
+    {
+        managed_old = JSON.parse(managed_json)
+    }
+
+    let managed_new: u|Entry
+    try
+    {
+        managed_new = await rescan(MANAGED_DIR, managed_old)
+    }
+    catch(e: any)
+    {
+        if(e.code !== 'ENOENT')
+        {
+            throw e
+        }
+    }
+    if(!managed_new)
+    {
+        console.log('The managed folder does not exist, there is nothing to assemble the pack from')
+        return
+    }
 
     let entries_to_pack: string[] = []
-    foreach_file(managed_new!, [], (entry, path) =>
+    foreach_file(managed_new, [], (entry, path) =>
     {
         if(entry.source === undefined)
         {
             entries_to_pack.push(path.join('/'))
         }
     })
-
     if(entries_to_pack.length === 0)
     {
         console.log('The files have not changed, there is nothing to assemble the pack from')
@@ -270,9 +290,24 @@ async function create_new_modpack()
 
     await fs.mkdir(CACHE_NEW_DIR, { recursive: true })
 
-    let mods_json = await fs.readFile(MODS_LIST, 'utf8')
-    let mods: string[] = JSON.parse(mods_json)
-    await fs.writeFile(CACHE_NEW_MODS, mods_json, 'utf8')
+    let mods_json: u|string
+    try
+    {
+        await fs.readFile(MODS_LIST, 'utf8')
+    }
+    catch(e: any)
+    {
+        if(e.code !== 'ENOENT')
+        {
+            throw e
+        }
+    }
+    let mods: string[] = []
+    if(mods_json)
+    {
+        mods = JSON.parse(mods_json)
+        await fs.writeFile(CACHE_NEW_MODS, mods_json, 'utf8')
+    }
 
     await tgz_compress({
         src: MANAGED_DIR,
@@ -289,7 +324,7 @@ async function create_new_modpack()
     
     await fs.rename(CACHE_NEW_DIR, `${CACHE_PACKED_DIR}/${infoHash}`)
 
-    foreach_file(managed_new!, [], (entry, path) =>
+    foreach_file(managed_new, [], (entry, path) =>
     {
         if(entry.source === undefined)
         {
@@ -302,12 +337,8 @@ async function create_new_modpack()
     await fs.writeFile(MODS_LIST, mods_json, 'utf8')
 
     await fs.writeFile(MANAGED_TREE, JSON.stringify(managed_new, null, 4), 'utf8')
-    
 
-    // filter FILES with undefined source
-    // add currently installed mods to dependencies
-    // create new folder in cache/packed
-    // add torrent to cache/torrents
+    console.log('The modpack is successfully created')
 }
 
 main()
