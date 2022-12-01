@@ -2,6 +2,31 @@ import fs from 'fs/promises'
 
 type u = undefined
 
+enum EntryStatus {
+    Changed, ToAdd, ToRemove, ToReplace, Unchanged
+}
+class FileStatus
+{
+    status?: EntryStatus
+    constructor(status?: EntryStatus)
+    {
+        this.status = status
+    }
+}
+class DirStatus
+{
+    status?: EntryStatus
+    entries: Statuses = {}
+    constructor(status?: EntryStatus)
+    {
+        this.status = status
+    }
+}
+type Status = FileStatus | DirStatus
+type Statuses = {
+    [name: string]: u|Status
+}
+
 class File
 {
     mtime: number
@@ -41,8 +66,8 @@ class DiffReport
 {
     added: Entries = {}
     removed: Entries = {}
-    replaced: Entries = {}
-    unchanged: Entries = {}
+    //replaced: Entries = {}
+    //unchanged: Entries = {}
 }
 
 async function rescan(basepath: string = '.', base?: Entry)
@@ -115,9 +140,28 @@ function add(a?: Entry, b?: Entry): Entry
     }
 }
 
-function diff(a: Entry, b: Entry)
+function diff(path = '.', a?: Entry, b?: Entry)
 {
     let report = new DiffReport()
-    
+
+    if(a instanceof Dir && b instanceof Dir)
+    {
+        let temp: { [name: string]: DiffReport } = {}
+        for(let [entry_name, entry] of Object.entries(a))
+        {
+            temp[entry_name] = 
+        }
+    }
+    else
+    {
+        if(a && b)
+        {
+            report.removed[path] = a
+        }
+        if(b)
+        {
+            report.added[path] = b
+        }
+    }
     return report
 }
