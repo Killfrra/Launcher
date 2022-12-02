@@ -22,27 +22,32 @@ type u = undefined
 
 class File
 {
+    $type = 'f'
     mtime: number
     source?: string
 
     size: number
     hash?: string    
-    constructor(size: number, mtime: number, hash?: string)
+    constructor(size: number, mtime: number, hash?: string, source?: string)
     {
         this.size = size
         this.mtime = mtime
         this.hash = hash
+        this.source = source
     }
 }
 class Dir
 {
+    $type = 'd'
     mtime: number
     source?: string
 
-    entries: Entries = {}
-    constructor(mtime: number)
+    entries: Entries
+    constructor(mtime: number, entries: Entries = {}, source?: string)
     {
         this.mtime = mtime
+        this.entries = entries
+        this.source = source
     }
 }
 type Entry = File | Dir
@@ -50,9 +55,64 @@ type Entries = {
     [name: string]: u|Entry
 }
 
+async function fs_readFile(path: string)
+{
+    let data: u|string
+    try
+    {
+        data = await fs.readFile(path, 'utf8')
+    }
+    catch(e: any)
+    {
+        if(e.code !== 'ENOENT')
+        {
+            throw e
+        }
+    }
+    return data
+}
+
+async function readTree(path: string)
+{
+    return parseTree(await fs_readFile(path))
+}
+
+function parseTree(json: u|string)
+{
+    return (json === undefined) ? json : JSON.parse(json, obj2entry) as Entry
+}
+
+function obj2entry(k: u|string, v: any)
+{
+    if(v.$type === 'f'){
+        return new File(v.size, v.mtime, v.hash, v.source)
+    } else if(v.$type === 'd'){
+        return new Dir(v.mtime, v.entries, v.source)
+    } else {
+        return v
+    }
+}
+
+function writeTree(path: string, tree: Entry)
+{
+    return fs.writeFile(path, JSON.stringify(tree, null, 4), 'utf8')
+}
+
 async function rescan(basepath: string = '.', base?: Entry)
 {
-    let stats = await fs.stat(basepath)
+    let stats
+    try
+    {
+        stats = await fs.stat(basepath)
+    }
+    catch(e: any)
+    {
+        if(e.code !== 'ENOENT')
+        {
+            throw e
+        }
+        return undefined
+    }
     
     if (stats.isDirectory())
     {
@@ -208,7 +268,7 @@ async function check_and_repair()
 {
     //TODO: try-catches
     //TODO: reviver
-    let cache_old = JSON.parse(await fs.readFile(CACHE_UNPACKED_TREE, 'utf8'))
+    let cache_old = await readTree(CACHE_UNPACKED_TREE)
     let cache_new = await rescan(CACHE_UNPACKED_DIR, cache_old)
     let cache_unc = diff_unchanged(cache_old, cache_new)
     if(cache_unc === true)
@@ -240,37 +300,8 @@ async function create_new_modpack()
     const CACHE_NEW_ARCHIVE = `${CACHE_NEW_DIR}/archive.tar.gz`
     const CACHE_NEW_MODS = `${CACHE_NEW_DIR}/mods.json`
 
-    let managed_json: u|string
-    try
-    {
-        managed_json = await fs.readFile(MANAGED_TREE, 'utf8')
-    }
-    catch(e: any)
-    {
-        if(e.code !== 'ENOENT')
-        {
-            throw e
-        }
-    }
-    let managed_old = undefined
-    if(managed_json)
-    {
-        //TODO: reviver
-        managed_old = JSON.parse(managed_json)
-    }
-
-    let managed_new: u|Entry
-    try
-    {
-        managed_new = await rescan(MANAGED_DIR, managed_old)
-    }
-    catch(e: any)
-    {
-        if(e.code !== 'ENOENT')
-        {
-            throw e
-        }
-    }
+    let managed_old = await readTree(MANAGED_TREE)
+    let managed_new = await rescan(MANAGED_DIR, managed_old)
     if(!managed_new)
     {
         console.log('The managed folder does not exist, there is nothing to assemble the pack from')
@@ -293,18 +324,7 @@ async function create_new_modpack()
 
     await fs.mkdir(CACHE_NEW_DIR, { recursive: true })
 
-    let mods_json: u|string
-    try
-    {
-        await fs.readFile(MODS_LIST, 'utf8')
-    }
-    catch(e: any)
-    {
-        if(e.code !== 'ENOENT')
-        {
-            throw e
-        }
-    }
+    let mods_json = await fs_readFile(MODS_LIST)
     let mods: string[] = []
     if(mods_json)
     {
@@ -342,7 +362,7 @@ async function create_new_modpack()
     mods_json = JSON.stringify(mods, null, 4)
     await fs.writeFile(MODS_LIST, mods_json, 'utf8')
 
-    await fs.writeFile(MANAGED_TREE, JSON.stringify(managed_new, null, 4), 'utf8')
+    await writeTree(MANAGED_TREE, managed_new)
 
     console.log('The modpack is successfully created')
 }
